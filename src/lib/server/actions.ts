@@ -76,10 +76,12 @@ export const costActions = {
 		return dbFail(error) ?? done('Saved');
 	}),
 	amount: action(s.newAmount, async (db, d) => {
-		const { error } = await db.from('expenses_cost_item_amounts').upsert(
-			{ cost_item_id: d.id, effective_from: d.effective_from, amount_cents: d.amount },
-			{ onConflict: 'cost_item_id,effective_from' }
-		);
+		const { error } = await db
+			.from('expenses_cost_item_amounts')
+			.upsert(
+				{ cost_item_id: d.id, effective_from: d.effective_from, amount_cents: d.amount },
+				{ onConflict: 'cost_item_id,effective_from' }
+			);
 		return dbFail(error) ?? done('Amount updated');
 	}),
 	removeAmount: action(s.removeRow, async (db, d) => {
@@ -103,7 +105,10 @@ export const costActions = {
 		return dbFail(error) ?? done('Expense stopped');
 	}),
 	restart: action(s.byId, async (db, d) => {
-		const { error } = await db.from('expenses_cost_items').update({ end_month: null }).eq('id', d.id);
+		const { error } = await db
+			.from('expenses_cost_items')
+			.update({ end_month: null })
+			.eq('id', d.id);
 		return dbFail(error) ?? done('Expense restarted');
 	}),
 	reorder: action(s.reorder, async (db, d) => {

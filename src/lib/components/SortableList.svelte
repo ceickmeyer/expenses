@@ -124,7 +124,7 @@
 	.handle svg {
 		fill: currentColor;
 	}
-	li.dragging .handle {
+	.handle:active {
 		cursor: grabbing;
 	}
 </style>

@@ -3,6 +3,8 @@
  *   paper  – warm off-white page        ink    – deep blue-green text
  *   moss   – money in / on track         clay   – money out / short
  *   brass  – tax and attention           slate  – secondary text and lines
+ *   chart-income / chart-cost – a separate blue/orange pair, because moss and clay
+ *   are too close for colorblind readers when they sit side by side in a chart.
  * Type: Fraunces for the few big numbers and headings, IBM Plex Sans for everything else.
  */
 
@@ -24,6 +26,9 @@
 	--moss-on-ink: #8fd3ad;
 	--clay-on-ink: #f0a07f;
 	--focus: #2563a8;
+	/* Chart series: blue/orange pair validated for colorblind separation */
+	--chart-income: #2b6cb0;
+	--chart-cost: #c25a1c;
 
 	--font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 	--font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
@@ -63,6 +68,8 @@
 		--moss-on-ink: #2f6b4f;
 		--clay-on-ink: #b24d27;
 		--focus: #7fb2ef;
+		--chart-income: #4a8ad4;
+		--chart-cost: #d26a2a;
 		--shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
 		--shadow: 0 12px 32px rgb(0 0 0 / 0.5);
 	}
@@ -344,4 +351,122 @@ details > summary {
 		transition-duration: 0.01ms !important;
 		scroll-behavior: auto !important;
 	}
+}
+
+/* List rows shared by income, costs and accounts */
+
+.item {
+	display: grid;
+	grid-template-columns: auto 1fr auto;
+	align-items: start;
+	gap: 0.25rem 0.5rem;
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: 0.35rem 0.6rem 0.35rem 0.2rem;
+}
+.item-main {
+	min-width: 0;
+	padding: 0.5rem 0;
+}
+.item-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+.item-meta {
+	font-size: var(--step--1);
+	color: var(--muted);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.15rem 0.5rem;
+	align-items: center;
+}
+.item-amount {
+	min-height: 2.75rem;
+	border: none;
+	background: transparent;
+	padding: 0.4rem 0.2rem 0.4rem 0.6rem;
+	font-weight: 600;
+	font-size: var(--step-1);
+	text-align: right;
+	text-decoration: underline dotted var(--line);
+	text-underline-offset: 0.3em;
+	display: grid;
+	justify-items: end;
+	line-height: 1.2;
+}
+.item-amount small {
+	font-size: var(--step--2);
+	font-weight: 400;
+	color: var(--muted);
+}
+.item-extra {
+	grid-column: 2 / -1;
+	display: grid;
+	gap: 0.75rem;
+	padding-bottom: 0.5rem;
+}
+.item-extra form {
+	display: grid;
+	gap: 0.65rem;
+}
+.inline-row {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+	gap: 0.6rem;
+	align-items: end;
+}
+.button-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+.history {
+	list-style: none;
+	margin: 0.4rem 0 0;
+	padding: 0;
+	font-size: var(--step--1);
+}
+.history li {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 0.5rem;
+	border-top: 1px solid var(--line);
+	padding: 0.15rem 0;
+}
+.history button {
+	min-height: 2.25rem;
+	font-size: var(--step--1);
+}
+.list-total {
+	font-size: var(--step-0);
+	color: var(--muted);
+	margin: 0 0 1rem;
+}
+.list-total strong {
+	color: var(--ink);
+	font-size: var(--step-1);
+}
+.ended {
+	margin-top: 1.5rem;
+}
+.ended > summary {
+	font-size: var(--step-0);
+	padding: 0.5rem 0;
+}
+.ended .item {
+	opacity: 0.8;
+}
+.ended-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	gap: 0.5rem;
+}
+.ended-list .item {
+	grid-template-columns: 1fr auto;
+	align-items: center;
+	padding-left: 0.9rem;
 }

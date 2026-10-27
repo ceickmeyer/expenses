@@ -2,10 +2,22 @@
 
 import { addMonths, monthOf, type Month } from './budget';
 
-const monthLong = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+const monthLong = new Intl.DateTimeFormat('en-US', {
+	month: 'long',
+	year: 'numeric',
+	timeZone: 'UTC'
+});
+const monthShort = new Intl.DateTimeFormat('en-US', {
+	month: 'short',
+	year: 'numeric',
+	timeZone: 'UTC'
+});
 const monthTiny = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' });
-const dayLong = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+const dayLong = new Intl.DateTimeFormat('en-US', {
+	month: 'long',
+	day: 'numeric',
+	year: 'numeric'
+});
 
 const utc = (m: Month) => new Date(`${m}T00:00:00Z`);
 

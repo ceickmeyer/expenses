@@ -7,12 +7,7 @@ export type IncomeCategory = 'tutoring' | 'dog_walking' | 'other';
 export type IncomeFrequency = 'weekly' | 'biweekly' | 'monthly';
 export type CostFrequency = 'monthly' | 'quarterly' | 'annual' | 'one_time';
 export type AccountType =
-	| 'checking'
-	| 'savings'
-	| 'tax_reserve'
-	| 'investment'
-	| 'credit_card'
-	| 'other';
+	'checking' | 'savings' | 'tax_reserve' | 'investment' | 'credit_card' | 'other';
 
 export interface Rate {
 	effective_from: Month;
@@ -218,7 +213,11 @@ function averageRate(lines: WeekLine[], category: IncomeCategory): number {
 	return units > 0 ? gross(own) / units : 0;
 }
 
-export function fullWeekIncome(sources: IncomeSource[], settings: BudgetSettings, m: Month): number {
+export function fullWeekIncome(
+	sources: IncomeSource[],
+	settings: BudgetSettings,
+	m: Month
+): number {
 	const lines = weekLines(sources, m, false);
 	const total =
 		gross(lines) -
@@ -249,7 +248,11 @@ export function reducedWeeksIn(settings: BudgetSettings, m: Month): number {
 	return Math.min(Math.max(weeks, 0), weeksInMonth(m));
 }
 
-export function expectedIncome(sources: IncomeSource[], settings: BudgetSettings, m: Month): number {
+export function expectedIncome(
+	sources: IncomeSource[],
+	settings: BudgetSettings,
+	m: Month
+): number {
 	const reduced = reducedWeeksIn(settings, m);
 	return (
 		(weeksInMonth(m) - reduced) * fullWeekIncome(sources, settings, m) +
@@ -503,7 +506,11 @@ export function projection(data: BudgetData, today: Date): Projection {
 // 6.6 Seasonal reserve
 
 /** Positive: move this much into savings. Negative: draw this much from the reserve. */
-export function setAside(figures: MonthFigures, perMonth: number, settings: BudgetSettings): number {
+export function setAside(
+	figures: MonthFigures,
+	perMonth: number,
+	settings: BudgetSettings
+): number {
 	return figures.income - figures.setAsideCosts - perMonth - settings.monthly_savings_goal_cents;
 }
 

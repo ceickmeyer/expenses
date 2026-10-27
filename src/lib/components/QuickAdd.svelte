@@ -2,7 +2,14 @@
 	import { enhance } from '$app/forms';
 	import { inPlace } from '#lib/forms.ts';
 	import { quickAdd, type QuickAddTab } from '#lib/quickadd.svelte.ts';
-	import { accountTypeLabel, categoryLabel, costFrequencyOption, monthInput, monthNames, thisMonth } from '#lib/format.ts';
+	import {
+		accountTypeLabel,
+		categoryLabel,
+		costFrequencyOption,
+		monthInput,
+		monthNames,
+		thisMonth
+	} from '#lib/format.ts';
 	import MoneyInput from './MoneyInput.svelte';
 
 	let dialog: HTMLDialogElement | undefined = $state();
@@ -74,108 +81,118 @@
 	</div>
 
 	{#key resetKey}
-	{#if quickAdd.tab === 'expense'}
-		<form
-			method="post"
-			action="/quick?/expense"
-			use:enhance={inPlace(saved)}
-		>
-			<label>Name <input name="name" required placeholder="Phone" bind:this={firstField} /></label>
-			<div class="row">
-				<label>Amount <MoneyInput name="amount" required bind:value={amount} /></label>
-				<label
-					>How often
-					<select name="frequency" bind:value={costFrequency}>
-						{#each Object.entries(costFrequencyOption) as [value, label] (value)}
-							<option {value}>{label}</option>
-						{/each}
-					</select>
-				</label>
-			</div>
-			<div class="row">
-				<label
-					>{costFrequency === 'one_time' ? 'Month paid' : 'Starting month'}
-					<input type="month" name="start_month" required bind:value={costStart} /></label
+		{#if quickAdd.tab === 'expense'}
+			<form method="post" action="/quick?/expense" use:enhance={inPlace(saved)}>
+				<label>Name <input name="name" required placeholder="Phone" bind:this={firstField} /></label
 				>
-				{#if costFrequency === 'annual'}
+				<div class="row">
+					<label>Amount <MoneyInput name="amount" required bind:value={amount} /></label>
 					<label
-						>Paid in
-						<select name="due_month" value={Number(costStart.slice(5, 7))}>
-							{#each monthNames as label, i (i)}
-								<option value={i + 1}>{label}</option>
+						>How often
+						<select name="frequency" bind:value={costFrequency}>
+							{#each Object.entries(costFrequencyOption) as [value, label] (value)}
+								<option {value}>{label}</option>
 							{/each}
 						</select>
 					</label>
-				{/if}
-			</div>
-			<label class="check"><input type="checkbox" name="is_variable" /> Changes month to month</label>
-			<label class="check"><input type="checkbox" name="is_tax" /> This is a tax payment</label>
-			<button class="primary">Add expense</button>
-		</form>
-	{:else if quickAdd.tab === 'income'}
-		<form
-			method="post"
-			action="/quick?/income"
-			use:enhance={inPlace(saved)}
-		>
-			<label>Name <input name="name" required placeholder="Weekly students" bind:this={firstField} /></label>
-			<div class="row">
+				</div>
+				<div class="row">
+					<label
+						>{costFrequency === 'one_time' ? 'Month paid' : 'Starting month'}
+						<input type="month" name="start_month" required bind:value={costStart} /></label
+					>
+					{#if costFrequency === 'annual'}
+						<label
+							>Paid in
+							<select name="due_month" value={Number(costStart.slice(5, 7))}>
+								{#each monthNames as label, i (i)}
+									<option value={i + 1}>{label}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+				</div>
+				<label class="check"
+					><input type="checkbox" name="is_variable" /> Changes month to month</label
+				>
+				<label class="check"><input type="checkbox" name="is_tax" /> This is a tax payment</label>
+				<button class="primary">Add expense</button>
+			</form>
+		{:else if quickAdd.tab === 'income'}
+			<form method="post" action="/quick?/income" use:enhance={inPlace(saved)}>
 				<label
-					>Category
-					<select name="category">
-						{#each Object.entries(categoryLabel) as [value, label] (value)}
+					>Name <input
+						name="name"
+						required
+						placeholder="Weekly students"
+						bind:this={firstField}
+					/></label
+				>
+				<div class="row">
+					<label
+						>Category
+						<select name="category">
+							{#each Object.entries(categoryLabel) as [value, label] (value)}
+								<option {value}>{label}</option>
+							{/each}
+						</select>
+					</label>
+					<label
+						>How often
+						<select name="frequency">
+							<option value="weekly">Weekly</option>
+							<option value="biweekly">Every 2 weeks</option>
+							<option value="monthly">Monthly</option>
+						</select>
+					</label>
+				</div>
+				<div class="row">
+					<label>Rate <MoneyInput name="rate" required bind:value={rate} placeholder="90" /></label>
+					<label>Clients <input type="number" name="quantity" min="0" value="1" required /></label>
+				</div>
+				<div class="row">
+					<label
+						>Continue in summer
+						<input type="number" name="summer_quantity" min="0" value="0" required /></label
+					>
+					<label
+						>Starting month
+						<input
+							type="month"
+							name="start_month"
+							required
+							value={monthInput(thisMonth())}
+						/></label
+					>
+				</div>
+				<p class="hint">
+					Rate is per session (or per payment). Summer tutoring is set in Settings.
+				</p>
+				<button class="primary">Add income</button>
+			</form>
+		{:else}
+			<form method="post" action="/quick?/account" use:enhance={inPlace(saved)}>
+				<label
+					>Name <input name="name" required placeholder="Checking" bind:this={firstField} /></label
+				>
+				<label
+					>Type
+					<select name="type" bind:value={accountType}>
+						{#each Object.entries(accountTypeLabel) as [value, label] (value)}
 							<option {value}>{label}</option>
 						{/each}
 					</select>
 				</label>
-				<label
-					>How often
-					<select name="frequency">
-						<option value="weekly">Weekly</option>
-						<option value="biweekly">Every 2 weeks</option>
-						<option value="monthly">Monthly</option>
-					</select>
-				</label>
-			</div>
-			<div class="row">
-				<label>Rate <MoneyInput name="rate" required bind:value={rate} placeholder="90" /></label>
-				<label>Clients <input type="number" name="quantity" min="0" value="1" required /></label>
-			</div>
-			<div class="row">
-				<label
-					>Continue in summer
-					<input type="number" name="summer_quantity" min="0" value="0" required /></label
+				<label class="check"
+					><input
+						type="checkbox"
+						name="counts_toward_spending"
+						bind:checked={countsTowardSpending}
+					/> Counts toward spending money</label
 				>
-				<label
-					>Starting month
-					<input type="month" name="start_month" required value={monthInput(thisMonth())} /></label
-				>
-			</div>
-			<p class="hint">Rate is per session (or per payment). Summer tutoring is set in Settings.</p>
-			<button class="primary">Add income</button>
-		</form>
-	{:else}
-		<form
-			method="post"
-			action="/quick?/account"
-			use:enhance={inPlace(saved)}
-		>
-			<label>Name <input name="name" required placeholder="Checking" bind:this={firstField} /></label>
-			<label
-				>Type
-				<select name="type" bind:value={accountType}>
-					{#each Object.entries(accountTypeLabel) as [value, label] (value)}
-						<option {value}>{label}</option>
-					{/each}
-				</select>
-			</label>
-			<label class="check"
-				><input type="checkbox" name="counts_toward_spending" bind:checked={countsTowardSpending} /> Counts
-				toward spending money</label
-			>
-			<button class="primary">Add account</button>
-		</form>
-	{/if}
+				<button class="primary">Add account</button>
+			</form>
+		{/if}
 	{/key}
 </dialog>
 

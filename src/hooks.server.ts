@@ -5,16 +5,20 @@ import { PUBLIC_SUPABASE_ANON_KEY, PUBLIC_SUPABASE_URL } from '$app/env/public';
 import type { Database } from '#lib/database.types.ts';
 
 const supabase: Handle = async ({ event, resolve }) => {
-	event.locals.supabase = createServerClient<Database>(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
-		cookies: {
-			getAll: () => event.cookies.getAll(),
-			setAll: (cookies) => {
-				for (const { name, value, options } of cookies) {
-					event.cookies.set(name, value, { ...options, path: '/' });
+	event.locals.supabase = createServerClient<Database>(
+		PUBLIC_SUPABASE_URL,
+		PUBLIC_SUPABASE_ANON_KEY,
+		{
+			cookies: {
+				getAll: () => event.cookies.getAll(),
+				setAll: (cookies) => {
+					for (const { name, value, options } of cookies) {
+						event.cookies.set(name, value, { ...options, path: '/' });
+					}
 				}
 			}
 		}
-	});
+	);
 
 	return resolve(event, {
 		filterSerializedResponseHeaders: (name) =>

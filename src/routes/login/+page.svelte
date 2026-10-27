@@ -22,8 +22,23 @@
 	>
 		<h1>Money</h1>
 		<p class="muted">Log in to see what you can spend.</p>
-		<label>Email <input type="email" name="email" autocomplete="username" required value={form?.email ?? ''} /></label>
-		<label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
+		<label
+			>Email <input
+				type="email"
+				name="email"
+				autocomplete="username"
+				required
+				value={form?.email ?? ''}
+			/></label
+		>
+		<label
+			>Password <input
+				type="password"
+				name="password"
+				autocomplete="current-password"
+				required
+			/></label
+		>
 		{#if form?.message}<p class="error" role="alert">{form.message}</p>{/if}
 		<button class="primary" disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</button>
 	</form>
