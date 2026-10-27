@@ -2,6 +2,7 @@
 // All money is in cents. Intermediate values may be fractional; round for display.
 
 export type Month = string; // 'YYYY-MM-01'
+export type Day = string; // 'YYYY-MM-DD'
 
 export type IncomeCategory = 'tutoring' | 'dog_walking' | 'other';
 export type IncomeFrequency = 'weekly' | 'biweekly' | 'monthly';
@@ -59,8 +60,12 @@ export interface Extra {
 	amount_cents: number;
 }
 
+/**
+ * A dated check-in: balances as of `date`, and income, costs and spending since the
+ * previous entry (see `entryPeriod`).
+ */
 export interface Entry {
-	month: Month;
+	date: Day;
 	discretionary_spent_cents: number | null;
 	/** income_source_id -> cents */
 	income: Record<number, number>;
@@ -79,7 +84,7 @@ export interface Account {
 
 export interface Snapshot {
 	account_id: number;
-	month: Month;
+	as_of: Day;
 	balance_cents: number;
 }
 
@@ -153,6 +158,78 @@ export function weeksInMonth(m: Month): number {
 
 export function monthRange(start: Month, count: number): Month[] {
 	return Array.from({ length: count }, (_, i) => addMonths(start, i));
+}
+
+// ---------------------------------------------------------------------------
+// Days
+
+export function toDay(date: Date): Day {
+	const m = String(date.getMonth() + 1).padStart(2, '0');
+	const d = String(date.getDate()).padStart(2, '0');
+	return `${date.getFullYear()}-${m}-${d}`;
+}
+
+function dayNumber(d: Day): number {
+	return (
+		Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10))) / 86_400_000
+	);
+}
+
+export function addDays(d: Day, n: number): Day {
+	const date = new Date((dayNumber(d) + n) * 86_400_000);
+	return date.toISOString().slice(0, 10);
+}
+
+/** Days from `a` to `b` (positive when b is later). */
+export function daysBetween(a: Day, b: Day): number {
+	return dayNumber(b) - dayNumber(a);
+}
+
+export function monthOfDay(d: Day): Month {
+	return `${d.slice(0, 7)}-01`;
+}
+
+export function dayIn(m: Month, day: number): Day {
+	return `${m.slice(0, 8)}${String(day).padStart(2, '0')}`;
+}
+
+export function lastDayOf(m: Month): Day {
+	return dayIn(m, daysInMonth(m));
+}
+
+/** Inclusive number of days that [start, end] shares with month `m`. */
+export function overlapDays(start: Day, end: Day, m: Month): number {
+	const from = start > m ? start : m;
+	const last = lastDayOf(m);
+	const to = end < last ? end : last;
+	return to < from ? 0 : daysBetween(from, to) + 1;
+}
+
+// ---------------------------------------------------------------------------
+// Entry periods
+
+export interface Period {
+	start: Day;
+	end: Day;
+	/** Inclusive length in days. */
+	days: number;
+}
+
+/**
+ * The days an entry dated `date` covers: from the day after the previous entry through
+ * `date`. The first entry starts on the 1st of its month.
+ */
+export function entryPeriod(entries: Entry[], date: Day): Period {
+	let prev: Day | null = null;
+	for (const e of entries) if (e.date < date && (prev === null || e.date > prev)) prev = e.date;
+	const start = prev ? addDays(prev, 1) : monthOfDay(date);
+	return { start, end: date, days: daysBetween(start, date) + 1 };
+}
+
+export function previousEntry(entries: Entry[], date: Day): Entry | undefined {
+	let prev: Entry | undefined;
+	for (const e of entries) if (e.date < date && (!prev || e.date > prev.date)) prev = e;
+	return prev;
 }
 
 // ---------------------------------------------------------------------------
@@ -332,19 +409,40 @@ export function isPaymentMonth(item: CostItem, m: Month): boolean {
 	}
 }
 
+/** The day a payment lands in month `m`: the 15th for tax, the 1st for everything else. */
+export function dueDay(item: CostItem, m: Month): Day {
+	return dayIn(m, item.is_tax && item.frequency === 'quarterly' ? 15 : 1);
+}
+
+/** Payment due dates for an item that fall within [start, end]. */
+export function dueDatesIn(item: CostItem, start: Day, end: Day): Day[] {
+	const dates: Day[] = [];
+	for (let m = monthOfDay(start); m <= end; m = addMonths(m, 1)) {
+		if (!isActive(item, m) || !isPaymentMonth(item, m)) continue;
+		const d = dueDay(item, m);
+		if (d >= start && d <= end) dates.push(d);
+	}
+	return dates;
+}
+
 /**
- * Per-payment amount for `m`. Variable items use the average of the last three actuals
- * entered before `m` (in payment months), falling back to the set amount.
+ * Per-payment amount for `m`. Variable items use the average of the last three months
+ * with an actual payment before `m`, falling back to the set amount.
  */
 export function paymentAmount(item: CostItem, entries: Entry[], m: Month): number {
-	if (item.is_variable) {
-		const recent = entries
-			.filter((e) => e.month < m && item.id in e.costs && isPaymentMonth(item, e.month))
-			.sort((a, b) => (a.month < b.month ? 1 : -1))
-			.slice(0, 3);
-		if (recent.length > 0) {
-			return recent.reduce((sum, e) => sum + e.costs[item.id], 0) / recent.length;
+	if (item.is_variable && entries.length > 0) {
+		const earliest = entries.reduce((min, e) => (e.date < min ? e.date : min), entries[0].date);
+		const paid: number[] = [];
+		for (
+			let month = addMonths(m, -1);
+			month >= monthOfDay(earliest) && paid.length < 3;
+			month = addMonths(month, -1)
+		) {
+			if (!isPaymentMonth(item, month)) continue;
+			const amount = monthActuals(entries, [item], month).costs.get(item.id) ?? 0;
+			if (amount > 0) paid.push(amount);
 		}
+		if (paid.length > 0) return paid.reduce((a, b) => a + b, 0) / paid.length;
 	}
 	return amountAt(item, m);
 }
@@ -386,18 +484,78 @@ export function entryCosts(entry: Entry): number {
 }
 
 // ---------------------------------------------------------------------------
+// Attributing entries to months
+
+export interface MonthActuals {
+	/** Days of the month covered by entries. Coverage always starts on the 1st. */
+	covered: number;
+	income: number;
+	/** cost_item_id -> cents attributed to this month */
+	costs: Map<number, number>;
+	extraIncome: number;
+	extraCosts: number;
+}
+
+/**
+ * The part of each entry that belongs to month `m`. Regular income is spread evenly over
+ * the days an entry covers. A cost is placed on the due dates inside the entry's period
+ * (rent on the 1st, tax on the 15th), or spread by days if none fall inside it. One-off
+ * extras belong to the month of the entry's date.
+ */
+export function monthActuals(entries: Entry[], costs: CostItem[], m: Month): MonthActuals {
+	const out: MonthActuals = {
+		covered: 0,
+		income: 0,
+		costs: new Map(),
+		extraIncome: 0,
+		extraCosts: 0
+	};
+	for (const entry of entries) {
+		const period = entryPeriod(entries, entry.date);
+		const overlap = overlapDays(period.start, period.end, m);
+		if (overlap === 0) continue;
+		const share = overlap / period.days;
+		out.covered += overlap;
+
+		if (monthOfDay(entry.date) === m) {
+			for (const x of entry.extras) {
+				if (x.kind === 'income') out.extraIncome += x.amount_cents;
+				else out.extraCosts += x.amount_cents;
+			}
+		}
+
+		for (const value of Object.values(entry.income)) out.income += value * share;
+
+		for (const [key, value] of Object.entries(entry.costs)) {
+			const id = Number(key);
+			const item = costs.find((c) => c.id === id);
+			const due = item ? dueDatesIn(item, period.start, period.end) : [];
+			const amount = due.length
+				? (value * due.filter((d) => monthOfDay(d) === m).length) / due.length
+				: value * share;
+			if (amount !== 0) out.costs.set(id, (out.costs.get(id) ?? 0) + amount);
+		}
+	}
+	return out;
+}
+
+// ---------------------------------------------------------------------------
 // Per-month figures
 
 export interface MonthFigures {
 	month: Month;
-	/** True when an entry exists and actuals were used. */
+	/** True when entries cover any of the month. */
 	actual: boolean;
-	/** Actual income when entered, otherwise expected. */
+	/** Days covered by entries (always from the 1st); equals the month length when complete. */
+	coveredDays: number;
+	/** Actual income so far plus expected income for the days not yet covered. */
 	income: number;
+	/** Actual income attributed to the month, or null when nothing is entered. */
+	actualIncome: number | null;
 	expectedIncome: number;
 	/** Sum of payments expected this month (annual and quarterly in their due months). */
 	expectedCosts: number;
-	/** Actual costs when entered, including extras. */
+	/** Actual costs attributed to the month, including extras. */
 	actualCosts: number | null;
 	/** Smoothed costs used for the spending window. */
 	windowCosts: number;
@@ -407,7 +565,6 @@ export interface MonthFigures {
 
 export function monthFigures(data: BudgetData, m: Month): MonthFigures {
 	const { sources, costs, settings, entries } = data;
-	const entry = entries.find((e) => e.month === m);
 	const expIncome = expectedIncome(sources, settings, m);
 
 	let expectedCosts = 0;
@@ -419,11 +576,14 @@ export function monthFigures(data: BudgetData, m: Month): MonthFigures {
 		setAsideCosts += costForSetAside(item, entries, m);
 	}
 
-	if (!entry) {
+	const actuals = monthActuals(entries, costs, m);
+	if (actuals.covered === 0) {
 		return {
 			month: m,
 			actual: false,
+			coveredDays: 0,
 			income: expIncome,
+			actualIncome: null,
 			expectedIncome: expIncome,
 			expectedCosts,
 			actualCosts: null,
@@ -432,26 +592,37 @@ export function monthFigures(data: BudgetData, m: Month): MonthFigures {
 		};
 	}
 
-	// Actuals replace expected values. Lumpy payments (quarterly, annual) are swapped back
-	// for their smoothed amounts so a tax payment landing inside the window isn't counted
-	// on top of the accruals for the months around it.
-	const actualCosts = entryCosts(entry);
+	const total = daysInMonth(m);
+	const coveredThrough = dayIn(m, actuals.covered);
+	const actualIncome = actuals.income + actuals.extraIncome;
+	const actualCosts = [...actuals.costs.values()].reduce((a, b) => a + b, 0) + actuals.extraCosts;
+
+	// Actuals so far, plus expected payments still to come this month. Lumpy payments
+	// (quarterly, annual) are swapped for their smoothed amounts so a tax payment inside the
+	// window isn't counted on top of the accruals for the months around it.
 	let actualWindow = actualCosts;
 	let actualSetAside = actualCosts;
 	for (const item of costs) {
-		const paid = entry.costs[item.id] ?? 0;
+		const paid = actuals.costs.get(item.id) ?? 0;
+		const stillDue = dueDay(item, m) > coveredThrough ? costDue(item, entries, m) : 0;
 		if (item.frequency === 'quarterly') {
 			actualWindow += costAccrued(item, entries, m) - paid;
 			actualSetAside += costForSetAside(item, entries, m) - paid;
 		} else if (item.frequency === 'annual') {
 			actualWindow += costAccrued(item, entries, m) - paid;
+			actualSetAside += stillDue;
+		} else {
+			actualWindow += stillDue;
+			actualSetAside += stillDue;
 		}
 	}
 
 	return {
 		month: m,
 		actual: true,
-		income: entryIncome(entry),
+		coveredDays: actuals.covered,
+		income: actualIncome + (expIncome * (total - actuals.covered)) / total,
+		actualIncome,
 		expectedIncome: expIncome,
 		expectedCosts,
 		actualCosts,
@@ -461,12 +632,45 @@ export function monthFigures(data: BudgetData, m: Month): MonthFigures {
 }
 
 // ---------------------------------------------------------------------------
+// Expected amounts for an entry's period (prefills the entry form)
+
+/** Expected income per source over [start, end], prorated by days in each month. */
+export function expectedIncomeForPeriod(
+	sources: IncomeSource[],
+	settings: BudgetSettings,
+	start: Day,
+	end: Day
+): Map<number, number> {
+	const out = new Map<number, number>();
+	for (let m = monthOfDay(start); m <= end; m = addMonths(m, 1)) {
+		const share = overlapDays(start, end, m) / daysInMonth(m);
+		for (const [id, value] of expectedIncomeBySource(sources, settings, m)) {
+			out.set(id, (out.get(id) ?? 0) + value * share);
+		}
+	}
+	return out;
+}
+
+/** Payments expected over [start, end]: each due date inside the period counts once. */
+export function expectedCostForPeriod(
+	item: CostItem,
+	entries: Entry[],
+	start: Day,
+	end: Day
+): number {
+	return dueDatesIn(item, start, end).reduce(
+		(sum, d) => sum + paymentAmount(item, entries, monthOfDay(d)),
+		0
+	);
+}
+
+// ---------------------------------------------------------------------------
 // 6.3 / 6.5 Annual projection and the spending window
 
 /** The last 6 entered months plus following months to make 12. */
 export function projectionWindow(entries: Entry[], today: Date): Month[] {
 	if (entries.length === 0) return monthRange(monthOf(today), 12);
-	const months = entries.map((e) => e.month).sort();
+	const months = entries.map((e) => monthOfDay(e.date)).sort();
 	const earliest = months[0];
 	const latest = months[months.length - 1];
 	const start = [addMonths(latest, -5), earliest].sort()[1];
@@ -538,9 +742,11 @@ export function reservePlan(data: BudgetData, from: Month, perMonth: number): Re
 // 6.9 Reconciliation
 
 export interface Reconciliation {
-	month: Month;
+	date: Day;
+	period: Period;
 	income: number;
 	costs: number;
+	/** Change across accounts with a balance on both this entry and the previous one. */
 	actualChange: number;
 	/** Entered discretionary spending, if any. */
 	spent: number | null;
@@ -550,17 +756,18 @@ export interface Reconciliation {
 	implied: number | null;
 }
 
-export function reconcile(data: BudgetData, m: Month): Reconciliation | null {
-	const entry = data.entries.find((e) => e.month === m);
-	if (!entry) return null;
+/** Compare an entry with the balances on the previous entry. */
+export function reconcile(data: BudgetData, date: Day): Reconciliation | null {
+	const entry = data.entries.find((e) => e.date === date);
+	const prev = previousEntry(data.entries, date);
+	if (!entry || !prev) return null;
 
-	const prev = addMonths(m, -1);
 	let actualChange = 0;
 	let compared = 0;
 	for (const account of data.accounts) {
 		if (account.archived) continue;
-		const now = data.snapshots.find((s) => s.account_id === account.id && s.month === m);
-		const before = data.snapshots.find((s) => s.account_id === account.id && s.month === prev);
+		const now = data.snapshots.find((s) => s.account_id === account.id && s.as_of === date);
+		const before = data.snapshots.find((s) => s.account_id === account.id && s.as_of === prev.date);
 		if (!now || !before) continue;
 		actualChange += now.balance_cents - before.balance_cents;
 		compared++;
@@ -571,7 +778,8 @@ export function reconcile(data: BudgetData, m: Month): Reconciliation | null {
 	const costs = entryCosts(entry);
 	const spent = entry.discretionary_spent_cents;
 	return {
-		month: m,
+		date,
+		period: entryPeriod(data.entries, date),
 		income,
 		costs,
 		actualChange,
@@ -585,38 +793,56 @@ export function reconcile(data: BudgetData, m: Month): Reconciliation | null {
 // 6.7 Spending vs window
 
 export interface SpendingResult {
-	month: Month;
+	date: Day;
+	period: Period;
 	spent: number;
 	source: 'entered' | 'implied';
-	/** perMonth − spent: positive means under the window. */
+	/** What the spending window allowed for the period: perDay × days. */
+	allowed: number;
+	/** allowed − spent: positive means under the window. */
 	difference: number;
 }
 
-export function spendingFor(data: BudgetData, m: Month, perMonth: number): SpendingResult | null {
-	const entry = data.entries.find((e) => e.month === m);
+/** Spending since the previous entry, compared with the daily window over those days. */
+export function spendingFor(data: BudgetData, date: Day, perDay: number): SpendingResult | null {
+	const entry = data.entries.find((e) => e.date === date);
 	if (!entry) return null;
+	const period = entryPeriod(data.entries, date);
+	const allowed = perDay * period.days;
+
+	let spent: number;
+	let source: SpendingResult['source'];
 	if (entry.discretionary_spent_cents !== null) {
-		const spent = entry.discretionary_spent_cents;
-		return { month: m, spent, source: 'entered', difference: perMonth - spent };
+		spent = entry.discretionary_spent_cents;
+		source = 'entered';
+	} else {
+		const rec = reconcile(data, date);
+		if (rec?.implied == null) return null;
+		spent = rec.implied;
+		source = 'implied';
 	}
-	const rec = reconcile(data, m);
-	if (rec?.implied == null) return null;
-	return { month: m, spent: rec.implied, source: 'implied', difference: perMonth - rec.implied };
+	return { date, period, spent, source, allowed, difference: allowed - spent };
 }
 
-/** Average difference over the last `count` entered months ending at `m` that have spending. */
+/**
+ * Average monthly difference from the window over entries in the `days` up to `date`
+ * (about six months by default), weighted by how many days each entry covers.
+ */
 export function averageSpendingDifference(
 	data: BudgetData,
-	m: Month,
-	perMonth: number,
-	count = 6
-): { average: number; months: number } | null {
-	const results = monthRange(addMonths(m, -(count - 1)), count)
-		.map((month) => spendingFor(data, month, perMonth))
+	date: Day,
+	perDay: number,
+	days = 183
+): { perMonth: number; entries: number } | null {
+	const from = addDays(date, -days);
+	const results = data.entries
+		.filter((e) => e.date > from && e.date <= date)
+		.map((e) => spendingFor(data, e.date, perDay))
 		.filter((r): r is SpendingResult => r !== null);
 	if (results.length === 0) return null;
-	const total = results.reduce((sum, r) => sum + r.difference, 0);
-	return { average: total / results.length, months: results.length };
+	const difference = results.reduce((sum, r) => sum + r.difference, 0);
+	const covered = results.reduce((sum, r) => sum + r.period.days, 0);
+	return { perMonth: (difference / covered) * (365 / 12), entries: results.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -693,13 +919,13 @@ export function taxStatus(data: BudgetData, today: Date): TaxStatus {
 export function latestSnapshot(
 	snapshots: Snapshot[],
 	accountId: number,
-	onOrBefore?: Month
+	onOrBefore?: Day
 ): Snapshot | undefined {
 	let best: Snapshot | undefined;
 	for (const s of snapshots) {
 		if (s.account_id !== accountId) continue;
-		if (onOrBefore && s.month > onOrBefore) continue;
-		if (!best || s.month > best.month) best = s;
+		if (onOrBefore && s.as_of > onOrBefore) continue;
+		if (!best || s.as_of > best.as_of) best = s;
 	}
 	return best;
 }
@@ -707,8 +933,8 @@ export function latestSnapshot(
 export interface AccountBalance {
 	account: Account;
 	balance: number | null;
-	month: Month | null;
-	/** Change from the previous month's snapshot, when there is one. */
+	asOf: Day | null;
+	/** Change since the account's previous balance, when there is one. */
 	change: number | null;
 }
 
@@ -717,14 +943,12 @@ export function accountBalances(accounts: Account[], snapshots: Snapshot[]): Acc
 		.filter((a) => !a.archived)
 		.map((account) => {
 			const latest = latestSnapshot(snapshots, account.id);
-			if (!latest) return { account, balance: null, month: null, change: null };
-			const prev = snapshots.find(
-				(s) => s.account_id === account.id && s.month === addMonths(latest.month, -1)
-			);
+			if (!latest) return { account, balance: null, asOf: null, change: null };
+			const prev = latestSnapshot(snapshots, account.id, addDays(latest.as_of, -1));
 			return {
 				account,
 				balance: latest.balance_cents,
-				month: latest.month,
+				asOf: latest.as_of,
 				change: prev ? latest.balance_cents - prev.balance_cents : null
 			};
 		});

@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { accountBalances, totalSpendable } from '#lib/budget.ts';
 	import { inPlace, postAction } from '#lib/forms.ts';
-	import { accountTypeLabel, monthShortLabel } from '#lib/format.ts';
+	import { accountTypeLabel, dayMediumLabel } from '#lib/format.ts';
 	import { formatMoney, formatSigned } from '#lib/money.ts';
 	import { openQuickAdd } from '#lib/quickadd.svelte.ts';
 	import SortableList from '#lib/components/SortableList.svelte';
@@ -58,7 +58,7 @@
 			{/snippet}
 		</SortableList>
 		<p class="small muted" style="margin-top: 0.75rem">
-			Balances are entered each month on the Enter month page.
+			Balances are updated whenever you make an entry.
 		</p>
 
 		{#if archived.length}
@@ -104,7 +104,7 @@
 		<div class="item-amount num" style="text-decoration: none">
 			{b?.balance == null ? '—' : formatMoney(b.balance)}
 			<small>
-				{#if b?.month}{monthShortLabel(b.month)}{#if b.change != null}
+				{#if b?.asOf}{dayMediumLabel(b.asOf)}{#if b.change != null}
 						· {formatSigned(b.change)}{/if}{:else}No balance yet{/if}
 			</small>
 		</div>

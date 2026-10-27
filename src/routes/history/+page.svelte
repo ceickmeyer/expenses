@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { entryCosts, entryIncome, reconcile } from '#lib/budget.ts';
-	import { monthInput, monthLabel } from '#lib/format.ts';
+	import { entryCosts, entryIncome, entryPeriod, reconcile } from '#lib/budget.ts';
+	import { dayMediumLabel, periodLabel } from '#lib/format.ts';
 	import { formatMoney, formatSigned } from '#lib/money.ts';
 	import type { PageProps } from './$types';
 
@@ -10,9 +10,11 @@
 
 	const rows = $derived(
 		[...app.entries].reverse().map((entry) => {
-			const rec = reconcile(app, entry.month);
+			const rec = reconcile(app, entry.date);
+			const period = entryPeriod(app.entries, entry.date);
 			return {
-				month: entry.month,
+				date: entry.date,
+				period,
 				income: entryIncome(entry),
 				costs: entryCosts(entry),
 				spent: entry.discretionary_spent_cents ?? rec?.implied ?? null,
@@ -29,24 +31,24 @@
 <div class="page wide">
 	<div class="page-head">
 		<h1>History</h1>
-		<a class="button" href="/entry">Enter a month</a>
+		<a class="button" href="/entry">New entry</a>
 	</div>
 
 	{#if rows.length === 0}
 		<div class="empty">
-			<p><strong>Every month you enter shows up here.</strong></p>
+			<p><strong>Every entry you make shows up here.</strong></p>
 			<p>
-				Income, costs, spending and how your balances moved. Example: September — $10,500 in, $3,250
-				out.
+				Each one covers the days since the one before: what came in, what went out, and how your
+				balances moved. Example: Oct 13 – 27 — $5,850 in, $1,565 out.
 			</p>
-			<a class="button primary" href="/entry">Enter your first month</a>
+			<a class="button primary" href="/entry">Make your first entry</a>
 		</div>
 	{:else}
 		<div class="scroll">
 			<table>
 				<thead>
 					<tr>
-						<th scope="col">Month</th>
+						<th scope="col">Entry</th>
 						<th scope="col">Income</th>
 						<th scope="col">Costs</th>
 						<th scope="col">Spending</th>
@@ -55,9 +57,15 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each rows as r (r.month)}
-						<tr onclick={() => goto(`/entry/${monthInput(r.month)}`)}>
-							<th scope="row"><a href="/entry/{monthInput(r.month)}">{monthLabel(r.month)}</a></th>
+					{#each rows as r (r.date)}
+						<tr onclick={() => goto(`/entry/${r.date}`)}>
+							<th scope="row">
+								<a href="/entry/{r.date}">{dayMediumLabel(r.date)}</a>
+								<span class="period"
+									>{periodLabel(r.period.start, r.period.end)} · {r.period.days}
+									{r.period.days === 1 ? 'day' : 'days'}</span
+								>
+							</th>
 							<td class="num">{formatMoney(r.income)}</td>
 							<td class="num">{formatMoney(r.costs)}</td>
 							<td class="num">
@@ -93,7 +101,7 @@
 	table {
 		width: 100%;
 		border-collapse: collapse;
-		min-width: 38rem;
+		min-width: 40rem;
 	}
 	th,
 	td {
@@ -114,6 +122,12 @@
 	}
 	tbody th {
 		font-weight: 500;
+	}
+	.period {
+		display: block;
+		font-size: var(--step--2);
+		font-weight: 400;
+		color: var(--muted);
 	}
 	tbody tr {
 		cursor: pointer;

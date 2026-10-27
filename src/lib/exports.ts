@@ -6,7 +6,7 @@ export const EXPORTS = {
 	income_rates: { table: 'expenses_income_source_rates', label: 'Income rates' },
 	cost_items: { table: 'expenses_cost_items', label: 'Costs' },
 	cost_amounts: { table: 'expenses_cost_item_amounts', label: 'Cost amounts' },
-	months: { table: 'expenses_monthly_entries', label: 'Months' },
+	entries: { table: 'expenses_entries', label: 'Entries' },
 	income_actuals: { table: 'expenses_income_actuals', label: 'Income actuals' },
 	cost_actuals: { table: 'expenses_cost_actuals', label: 'Cost actuals' },
 	extras: { table: 'expenses_monthly_extras', label: 'One-off items' },

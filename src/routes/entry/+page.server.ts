@@ -1,5 +1,7 @@
 import { redirect } from '@sveltejs/kit';
-import { lastMonth, monthInput } from '#lib/format.ts';
+import { today } from '#lib/format.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => redirect(307, `/entry/${monthInput(lastMonth())}`);
+// New entries default to today. The page has a date picker to back-date one.
+export const load: PageServerLoad = ({ url }) =>
+	redirect(307, `/entry/${url.searchParams.get('date') ?? today()}`);

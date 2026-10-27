@@ -12,7 +12,7 @@
 
 	const links = [
 		{ href: '/', label: 'Dashboard' },
-		{ href: '/entry', label: 'Enter month' },
+		{ href: '/entry', label: 'New entry' },
 		{ href: '/history', label: 'History' },
 		{ href: '/sources', label: 'Income' },
 		{ href: '/costs', label: 'Costs' },

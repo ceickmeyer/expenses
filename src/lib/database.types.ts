@@ -47,7 +47,7 @@ export type Database = {
 					id: number;
 					user_id: string;
 					account_id: number;
-					month: string;
+					as_of: string;
 					balance_cents: number;
 					created_at: string;
 					updated_at: string;
@@ -56,7 +56,7 @@ export type Database = {
 					id?: never;
 					user_id?: string;
 					account_id: number;
-					month: string;
+					as_of: string;
 					balance_cents: number;
 					created_at?: string;
 					updated_at?: string;
@@ -65,7 +65,7 @@ export type Database = {
 					id?: never;
 					user_id?: string;
 					account_id?: number;
-					month?: string;
+					as_of?: string;
 					balance_cents?: number;
 					created_at?: string;
 					updated_at?: string;
@@ -246,11 +246,11 @@ export type Database = {
 					}
 				];
 			};
-			expenses_monthly_entries: {
+			expenses_entries: {
 				Row: {
 					id: number;
 					user_id: string;
-					month: string;
+					entry_date: string;
 					discretionary_spent_cents: number | null;
 					notes: string;
 					created_at: string;
@@ -259,7 +259,7 @@ export type Database = {
 				Insert: {
 					id?: never;
 					user_id?: string;
-					month: string;
+					entry_date: string;
 					discretionary_spent_cents?: number | null;
 					notes?: string;
 					created_at?: string;
@@ -268,7 +268,7 @@ export type Database = {
 				Update: {
 					id?: never;
 					user_id?: string;
-					month?: string;
+					entry_date?: string;
 					discretionary_spent_cents?: number | null;
 					notes?: string;
 					created_at?: string;
@@ -309,7 +309,7 @@ export type Database = {
 						foreignKeyName: 'expenses_income_actuals_entry_id_fkey';
 						columns: ['entry_id'];
 						isOneToOne: false;
-						referencedRelation: 'expenses_monthly_entries';
+						referencedRelation: 'expenses_entries';
 						referencedColumns: ['id'];
 					},
 					{
@@ -361,7 +361,7 @@ export type Database = {
 						foreignKeyName: 'expenses_cost_actuals_entry_id_fkey';
 						columns: ['entry_id'];
 						isOneToOne: false;
-						referencedRelation: 'expenses_monthly_entries';
+						referencedRelation: 'expenses_entries';
 						referencedColumns: ['id'];
 					}
 				];
@@ -402,7 +402,7 @@ export type Database = {
 						foreignKeyName: 'expenses_monthly_extras_entry_id_fkey';
 						columns: ['entry_id'];
 						isOneToOne: false;
-						referencedRelation: 'expenses_monthly_entries';
+						referencedRelation: 'expenses_entries';
 						referencedColumns: ['id'];
 					}
 				];
@@ -455,7 +455,7 @@ export type Database = {
 				Args: never;
 				Returns: Database['public']['Tables']['expenses_settings']['Row'];
 			};
-			expenses_save_month: {
+			expenses_save_entry: {
 				Args: { payload: Json };
 				Returns: number;
 			};

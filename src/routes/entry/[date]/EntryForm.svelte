@@ -2,34 +2,51 @@
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import {
-		addMonths,
-		costDue,
-		expectedIncomeBySource,
+		addDays,
+		dueDatesIn,
+		entryPeriod,
+		expectedCostForPeriod,
+		expectedIncomeForPeriod,
 		isActive,
 		latestSnapshot,
+		monthOfDay,
+		previousEntry,
 		projection,
-		type Entry,
-		type Month
+		type Day,
+		type Entry
 	} from '#lib/budget.ts';
-	import { categoryLabel, costFrequencyOption, monthLabel, monthShortLabel } from '#lib/format.ts';
+	import {
+		categoryLabel,
+		costFrequencyOption,
+		dayShortLabel,
+		monthShortLabel,
+		periodLabel
+	} from '#lib/format.ts';
 	import { centsToInput, formatAbs, formatMoney, formatSigned, parseMoney } from '#lib/money.ts';
-	import type { MonthPayload } from '#lib/schemas.ts';
+	import type { EntryPayload } from '#lib/schemas.ts';
 	import type { AppData, CostRow } from '#lib/server/data.ts';
 	import { toast } from '#lib/toast.svelte.ts';
 	import MoneyInput from '#lib/components/MoneyInput.svelte';
 
 	interface Props {
 		app: AppData;
-		month: Month;
+		date: Day;
 	}
 
-	let { app, month }: Props = $props();
+	let { app, date }: Props = $props();
 
-	// The form is keyed on the month by the parent, so it's fine to read props once here.
+	// The form is keyed on the date by the parent, so it's fine to read props once here.
 	/* svelte-ignore state_referenced_locally */
-	const initial = { app, month };
-	const entry = initial.app.entries.find((e) => e.month === initial.month);
-	const prev = addMonths(initial.month, -1);
+	const initial = { app, date };
+	const entry = initial.app.entries.find((e) => e.date === initial.date);
+	const prev = previousEntry(initial.app.entries, initial.date);
+	/** The days this entry covers: since the previous entry (or the 1st, for the first one). */
+	const period = entryPeriod(initial.app.entries, initial.date);
+	const since = prev ? `since ${dayShortLabel(prev.date)}` : `since ${dayShortLabel(period.start)}`;
+	const activeInPeriod = (item: Parameters<typeof isActive>[0]) =>
+		isActive(item, monthOfDay(period.start)) || isActive(item, monthOfDay(period.end));
+	// Other entries, for variable-cost averages (this entry's own amounts shouldn't feed them).
+	const otherEntries = initial.app.entries.filter((e) => e.date !== initial.date);
 
 	const amount = (cents: number | null | undefined) =>
 		cents === null || cents === undefined ? '' : centsToInput(Math.round(cents));
@@ -41,15 +58,18 @@
 			.filter((a) => !a.archived)
 			.map((account) => {
 				const own = initial.app.snapshots.find(
-					(s) => s.account_id === account.id && s.month === initial.month
+					(s) => s.account_id === account.id && s.as_of === initial.date
 				);
-				const before = latestSnapshot(initial.app.snapshots, account.id, prev);
+				const before = latestSnapshot(initial.app.snapshots, account.id, addDays(initial.date, -1));
 				return {
 					account,
 					text: amount(own?.balance_cents ?? before?.balance_cents),
-					previous: initial.app.snapshots.find(
-						(s) => s.account_id === account.id && s.month === prev
-					)?.balance_cents,
+					// Balance on the previous entry, for the change since then.
+					previous: prev
+						? initial.app.snapshots.find(
+								(s) => s.account_id === account.id && s.as_of === prev.date
+							)?.balance_cents
+						: undefined,
 					prefilled: !own && before !== undefined
 				};
 			})
@@ -57,14 +77,15 @@
 
 	// --- Income -------------------------------------------------------------------
 
-	const expectedBySource = expectedIncomeBySource(
+	const expectedBySource = expectedIncomeForPeriod(
 		initial.app.sources,
 		initial.app.settings,
-		initial.month
+		period.start,
+		period.end
 	);
 	const income = $state(
 		initial.app.sources
-			.filter((s) => isActive(s, initial.month) || (entry && s.id in entry.income))
+			.filter((s) => activeInPeriod(s) || (entry && s.id in entry.income))
 			.map((source) => ({
 				source,
 				expected: expectedBySource.get(source.id) ?? 0,
@@ -76,13 +97,15 @@
 
 	const costs = $state(
 		initial.app.costs
-			.filter((c) => isActive(c, initial.month) || (entry && c.id in entry.costs))
+			.filter((c) => activeInPeriod(c) || (entry && c.id in entry.costs))
 			.map((item) => {
-				const due = costDue(item, initial.app.entries, initial.month);
+				const due = expectedCostForPeriod(item, otherEntries, period.start, period.end);
 				return {
 					item,
 					due,
-					/** Shown in the main list; otherwise tucked under "Not due this month". */
+					/** Payments due in the period; the change prompt only makes sense for one. */
+					payments: dueDatesIn(item, period.start, period.end).length,
+					/** Shown in the main list; otherwise tucked under "Not due in this period". */
 					main: due > 0 || (entry !== undefined && item.id in entry.costs),
 					text: entry ? amount(entry.costs[item.id]) : due > 0 ? amount(due) : '',
 					useFromNow: false
@@ -92,9 +115,9 @@
 	const dueCosts = $derived(costs.filter((c) => c.main));
 	const otherCosts = $derived(costs.filter((c) => !c.main));
 
-	/** "Rent was $1,650, expected $1,500" — only for fixed amounts that were due. */
+	/** "Rent was $1,650, expected $1,500" — only for a single fixed payment that was due. */
 	function changed(line: (typeof costs)[number]): number | null {
-		if (line.item.is_variable || line.due <= 0) return null;
+		if (line.item.is_variable || line.due <= 0 || line.payments !== 1) return null;
 		const cents = parseMoney(line.text);
 		if (cents === null || Number.isNaN(cents) || cents <= 0) return null;
 		return cents !== Math.round(line.due) ? cents : null;
@@ -204,9 +227,9 @@
 				? incomeTotal - costTotal - change
 				: null;
 
-		// What the headline would be with this month saved.
+		// What the headline would be with this entry saved.
 		const draft: Entry = {
-			month,
+			date,
 			discretionary_spent_cents: spent === null || Number.isNaN(spent) ? null : spent,
 			income: Object.fromEntries(income.map((l) => [l.source.id, cents(l.text)])),
 			costs: Object.fromEntries(costs.map((l) => [l.item.id, cents(l.text)])),
@@ -224,7 +247,7 @@
 			]
 		};
 		const perDay = projection(
-			{ ...app, entries: [...app.entries.filter((e) => e.month !== month), draft] },
+			{ ...app, entries: [...app.entries.filter((e) => e.date !== date), draft] },
 			new Date()
 		).perDay;
 
@@ -241,15 +264,15 @@
 
 	// --- Submit -------------------------------------------------------------------
 
-	function buildPayload(): MonthPayload | string {
+	function buildPayload(): EntryPayload | string {
 		const money = (text: string, what: string): number | null | string => {
 			const v = parseMoney(text);
 			if (Number.isNaN(v)) return `Check the amount for ${what}`;
 			return v;
 		};
 
-		const payload: MonthPayload = {
-			month,
+		const payload: EntryPayload = {
+			date,
 			discretionary_spent_cents: null,
 			notes,
 			balances: [],
@@ -360,7 +383,7 @@
 		return async ({ result }) => {
 			saving = false;
 			if (result.type === 'success') {
-				toast('Month saved');
+				toast('Entry saved');
 				await goto('/', { invalidateAll: true });
 			} else if (result.type === 'failure') {
 				toast(String(result.data?.message ?? 'Couldn’t save'), 'error');
@@ -393,14 +416,14 @@
 		<div>
 			<span class="eyebrow">Spend per day</span>
 			<strong class="num">{formatMoney(totals.perDay)}</strong>
-			<span class="small muted">with this month</span>
+			<span class="small muted">with this entry</span>
 		</div>
 	</section>
 
 	<section class="panel">
-		<h2>Balances</h2>
+		<h2>Balances today</h2>
 		<p class="small muted">
-			End-of-month balance for each account. Credit cards as a negative number.
+			What each account shows as of this date. Credit cards as a negative number.
 		</p>
 		{#if balances.length === 0}
 			<p class="empty small">
@@ -412,7 +435,7 @@
 				<label class="line">
 					<span class="line-name"
 						>{b.account.name}
-						{#if b.prefilled}<span class="small muted">· last month’s balance</span>{/if}</span
+						{#if b.prefilled}<span class="small muted">· last balance entered</span>{/if}</span
 					>
 					<MoneyInput bind:value={b.text} />
 				</label>
@@ -421,7 +444,11 @@
 	</section>
 
 	<section class="panel">
-		<h2>Income</h2>
+		<h2>Income {since}</h2>
+		<p class="small muted">
+			What came in over {periodLabel(period.start, period.end)} ({period.days}
+			{period.days === 1 ? 'day' : 'days'}). Prefilled with what was expected.
+		</p>
 		<div class="lines">
 			{#each income as l (l.source.id)}
 				<label class="line">
@@ -441,7 +468,8 @@
 					</div>
 					<div class="choice" role="radiogroup" aria-label="How often">
 						<label class="check"
-							><input type="radio" bind:group={l.repeat} value={false} /> Just this month</label
+							><input type="radio" bind:group={l.repeat} value={false} />
+							Just this once</label
 						>
 						<label class="check"
 							><input type="radio" bind:group={l.repeat} value={true} /> Repeating</label
@@ -482,7 +510,8 @@
 	</section>
 
 	<section class="panel">
-		<h2>Costs</h2>
+		<h2>Costs {since}</h2>
+		<p class="small muted">Bills due in this period are filled in. Others are underneath.</p>
 		<div class="lines">
 			{#each dueCosts as l (l.item.id)}
 				{@render costLine(l)}
@@ -496,7 +525,8 @@
 					</div>
 					<div class="choice" role="radiogroup" aria-label="How often">
 						<label class="check"
-							><input type="radio" bind:group={l.repeat} value={false} /> Just this month</label
+							><input type="radio" bind:group={l.repeat} value={false} />
+							Just this once</label
 						>
 						<label class="check"
 							><input type="radio" bind:group={l.repeat} value={true} /> Repeating</label
@@ -531,7 +561,7 @@
 
 		{#if otherCosts.length}
 			<details class="not-due">
-				<summary>Not due this month ({otherCosts.length})</summary>
+				<summary>Not due in this period ({otherCosts.length})</summary>
 				<div class="lines">
 					{#each otherCosts as l (l.item.id)}
 						{@render costLine(l)}
@@ -542,7 +572,7 @@
 	</section>
 
 	<section class="panel">
-		<h2>Total spending this month</h2>
+		<h2>Spending {since}</h2>
 		<label class="line">
 			<span class="line-name"
 				>Everything beyond the costs above <span class="small muted">· optional</span></span
@@ -560,7 +590,7 @@
 
 	<div class="save">
 		<button type="submit" class="primary" disabled={saving}
-			>{saving ? 'Saving…' : `Save ${monthLabel(month)}`}</button
+			>{saving ? 'Saving…' : 'Save entry'}</button
 		>
 	</div>
 </form>
@@ -573,8 +603,7 @@
 				>{l.item.name}
 				{#if l.item.is_tax}<span class="tag brass">Tax</span>{/if}
 				<span class="small muted num">
-					{#if l.due > 0}expected {formatMoney(l.due)}{:else if l.item.frequency === 'annual'}due in
-						another month{:else}not due{/if}
+					{#if l.due > 0}expected {formatMoney(l.due)}{:else}not due{/if}
 				</span></span
 			>
 			<MoneyInput bind:value={l.text} />
@@ -587,7 +616,7 @@
 				>
 				<label class="check">
 					<input type="checkbox" bind:checked={l.useFromNow} />
-					Use {formatAbs(different)} from {monthShortLabel(month)} on
+					Use {formatAbs(different)} from {monthShortLabel(monthOfDay(date))} on
 				</label>
 			</div>
 		{/if}

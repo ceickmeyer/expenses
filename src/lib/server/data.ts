@@ -88,11 +88,11 @@ export async function loadAppData(db: DB): Promise<AppData> {
 		db.from('expenses_cost_items').select('*').order('sort_order').order('id'),
 		db.from('expenses_cost_item_amounts').select('*').order('effective_from'),
 		db.from('expenses_accounts').select('*').order('sort_order').order('id'),
-		db.from('expenses_monthly_entries').select('*').order('month'),
+		db.from('expenses_entries').select('*').order('entry_date'),
 		db.from('expenses_income_actuals').select('entry_id, income_source_id, amount_cents'),
 		db.from('expenses_cost_actuals').select('entry_id, cost_item_id, amount_cents'),
 		db.from('expenses_monthly_extras').select('entry_id, kind, name, amount_cents').order('id'),
-		db.from('expenses_balance_snapshots').select('account_id, month, balance_cents'),
+		db.from('expenses_balance_snapshots').select('account_id, as_of, balance_cents'),
 		db.from('expenses_settings').select('*').maybeSingle()
 	]);
 
@@ -101,7 +101,7 @@ export async function loadAppData(db: DB): Promise<AppData> {
 
 	const entryRows: EntryRow[] = check(entries).map((e) => ({
 		id: e.id,
-		month: e.month,
+		date: e.entry_date,
 		notes: e.notes,
 		discretionary_spent_cents: e.discretionary_spent_cents,
 		income: {},

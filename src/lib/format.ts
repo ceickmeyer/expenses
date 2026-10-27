@@ -1,6 +1,6 @@
 // Display labels shared across pages.
 
-import { addMonths, monthOf, type Month } from './budget';
+import { addMonths, monthOf, toDay, type Day, type Month } from './budget';
 
 const monthLong = new Intl.DateTimeFormat('en-US', {
 	month: 'long',
@@ -19,7 +19,7 @@ const dayLong = new Intl.DateTimeFormat('en-US', {
 	year: 'numeric'
 });
 
-const utc = (m: Month) => new Date(`${m}T00:00:00Z`);
+const utc = (d: Day) => new Date(`${d}T00:00:00Z`);
 
 export const monthLabel = (m: Month) => monthLong.format(utc(m));
 export const monthShortLabel = (m: Month) => monthShort.format(utc(m));
@@ -30,6 +30,41 @@ export const dateLabel = (d: Date) => dayLong.format(d);
 export const monthInput = (m: Month) => m.slice(0, 7);
 
 export const thisMonth = () => monthOf(new Date());
+export const today = (): Day => toDay(new Date());
+
+const dayFull = new Intl.DateTimeFormat('en-US', {
+	weekday: 'short',
+	month: 'long',
+	day: 'numeric',
+	year: 'numeric',
+	timeZone: 'UTC'
+});
+const dayMedium = new Intl.DateTimeFormat('en-US', {
+	month: 'short',
+	day: 'numeric',
+	year: 'numeric',
+	timeZone: 'UTC'
+});
+const dayShort = new Intl.DateTimeFormat('en-US', {
+	month: 'short',
+	day: 'numeric',
+	timeZone: 'UTC'
+});
+
+/** "Tue, October 27, 2026" */
+export const dayLabel = (d: Day) => dayFull.format(utc(d));
+/** "Oct 27, 2026" */
+export const dayMediumLabel = (d: Day) => dayMedium.format(utc(d));
+/** "Oct 27" */
+export const dayShortLabel = (d: Day) => dayShort.format(utc(d));
+
+/** "Oct 13 – 27", "Sep 25 – Oct 10", or "Oct 27" for a single day. */
+export function periodLabel(start: Day, end: Day): string {
+	if (start === end) return dayShortLabel(end);
+	if (start.slice(0, 7) === end.slice(0, 7))
+		return `${dayShortLabel(start)} – ${Number(end.slice(8))}`;
+	return `${dayShortLabel(start)} – ${dayShortLabel(end)}`;
+}
 export const lastMonth = () => addMonths(thisMonth(), -1);
 
 export const incomeFrequencyLabel = {

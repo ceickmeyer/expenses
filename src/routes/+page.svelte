@@ -3,6 +3,8 @@
 		accountBalances,
 		addMonths,
 		averageSpendingDifference,
+		dayIn,
+		daysBetween,
 		monthFigures,
 		projection,
 		reservePlan,
@@ -13,7 +15,15 @@
 		totalSpendable
 	} from '#lib/budget.ts';
 	import CashFlowChart from '#lib/components/CashFlowChart.svelte';
-	import { dateLabel, monthInput, monthLabel, monthShortLabel, thisMonth } from '#lib/format.ts';
+	import {
+		dateLabel,
+		dayShortLabel,
+		monthLabel,
+		monthShortLabel,
+		periodLabel,
+		thisMonth,
+		today as todayDay
+	} from '#lib/format.ts';
 	import { formatAbs, formatMoney, formatSigned } from '#lib/money.ts';
 	import type { PageProps } from './$types';
 
@@ -32,22 +42,23 @@
 			done: app.settings.configured,
 			optional: true
 		},
-		{ label: 'Enter your first month', href: '/entry', done: app.entries.length > 0 }
+		{ label: 'Make your first entry', href: '/entry', done: app.entries.length > 0 }
 	]);
 	const setupDone = $derived(checklist.slice(0, 3).every((c) => c.done));
-	const latestEntry = $derived(app.entries.at(-1)?.month ?? null);
+	const latestEntry = $derived(app.entries.at(-1)?.date ?? null);
 
 	const p = $derived(projection(app, today));
 
-	// "This month" is the latest month with numbers in it, if it's recent; otherwise now.
-	const focus = $derived(latestEntry && latestEntry >= addMonths(now, -1) ? latestEntry : now);
+	// This month: actuals up to the latest entry, expected for the rest.
+	const focus = now;
 	const focusFigures = $derived(monthFigures(app, focus));
 	const focusSetAside = $derived(setAside(focusFigures, p.perMonth, app.settings));
 
-	const spending = $derived(latestEntry ? spendingFor(app, latestEntry, p.perMonth) : null);
+	const spending = $derived(latestEntry ? spendingFor(app, latestEntry, p.perDay) : null);
 	const spendingAvg = $derived(
-		latestEntry ? averageSpendingDifference(app, latestEntry, p.perMonth) : null
+		latestEntry ? averageSpendingDifference(app, latestEntry, p.perDay) : null
 	);
+	const daysSinceEntry = $derived(latestEntry ? daysBetween(latestEntry, todayDay()) : null);
 
 	const chartMonths = $derived(
 		p.months.map((f) => ({
@@ -95,12 +106,12 @@
 		</section>
 	{:else if app.entries.length === 0}
 		<section class="panel first">
-			<h1>Enter your first month to see your spending window</h1>
+			<h1>Make your first entry to see your spending window</h1>
 			<p class="muted">
-				It takes a couple of minutes: balances, what came in, and what went out. Amounts are filled
-				in from your income and costs.
+				It takes a couple of minutes: today’s balances, plus what came in and went out since the
+				1st. After that, make an entry whenever you like — each one covers the days since the last.
 			</p>
-			<a class="button primary" href="/entry">Enter {monthLabel(addMonths(now, -1))}</a>
+			<a class="button primary" href="/entry">New entry for today</a>
 		</section>
 	{:else}
 		<section class="headline" aria-labelledby="headline">
@@ -133,22 +144,42 @@
 					? ` and saving ${formatMoney(app.settings.monthly_savings_goal_cents)} a month`
 					: ''}, so summer and winter feel the same.
 			</p>
+			{#if latestEntry && daysSinceEntry !== null}
+				<p class="last-entry small">
+					Last entry {daysSinceEntry === 0
+						? 'today'
+						: daysSinceEntry === 1
+							? 'yesterday'
+							: `${dayShortLabel(latestEntry)}, ${daysSinceEntry} days ago`}
+					· <a href="/entry">New entry</a>
+				</p>
+			{/if}
 		</section>
 
 		<section class="panel">
 			<div class="panel-head">
 				<h2>{monthLabel(focus)}</h2>
-				{#if !focusFigures.actual}<span class="tag">Expected</span>{/if}
+				{#if !focusFigures.actual}
+					<span class="tag">Expected</span>
+				{:else}
+					<span class="tag"
+						>Entered through {dayShortLabel(dayIn(focus, focusFigures.coveredDays))}</span
+					>
+				{/if}
 			</div>
 			<table class="compare">
 				<thead>
-					<tr><th></th><th scope="col">Expected</th><th scope="col">Actual</th></tr>
+					<tr><th></th><th scope="col">Expected</th><th scope="col">So far</th></tr>
 				</thead>
 				<tbody>
 					<tr>
 						<th scope="row">Income</th>
 						<td class="num">{formatMoney(focusFigures.expectedIncome)}</td>
-						<td class="num">{focusFigures.actual ? formatMoney(focusFigures.income) : '—'}</td>
+						<td class="num"
+							>{focusFigures.actualIncome !== null
+								? formatMoney(focusFigures.actualIncome)
+								: '—'}</td
+						>
 					</tr>
 					<tr>
 						<th scope="row">Costs</th>
@@ -172,20 +203,24 @@
 					>
 				{/if}
 			</p>
-			{#if !focusFigures.actual}
-				<a class="small" href="/entry/{monthInput(focus)}">Enter {monthLabel(focus)}</a>
-			{/if}
+			<p class="small muted" style="margin: 0">
+				Based on {focusFigures.actual
+					? 'what you’ve entered so far plus what’s expected for the rest of the month'
+					: 'what’s expected this month'}.
+			</p>
 		</section>
 
 		{#if spending}
 			<section class="panel">
-				<h2>Spending in {monthLabel(spending.month)}</h2>
+				<h2>
+					Spending {periodLabel(spending.period.start, spending.period.end)}
+				</h2>
 				<p class="spend">
 					<span class="num big-ish">{formatMoney(spending.spent)}</span>
 					<span class="muted">
-						{spending.source === 'implied' ? 'worked out from your balances' : 'entered'} · window {formatMoney(
-							p.perMonth
-						)}
+						{spending.source === 'implied' ? 'worked out from your balances' : 'entered'} · window
+						{formatMoney(spending.allowed)} for {spending.period.days}
+						{spending.period.days === 1 ? 'day' : 'days'}
 					</span>
 				</p>
 				<p class:pos={spending.difference >= 0} class:neg={spending.difference < 0}>
@@ -195,12 +230,11 @@
 						)}</strong
 					>
 				</p>
-				{#if spendingAvg && spendingAvg.months > 1}
+				{#if spendingAvg && spendingAvg.entries > 1}
 					<p class="small muted">
-						Over the last {spendingAvg.months} months you were {spendingAvg.average >= 0
+						Across your last {spendingAvg.entries} entries you’ve been {spendingAvg.perMonth >= 0
 							? 'under'
-							: 'over'} by
-						{formatAbs(spendingAvg.average)} a month on average.
+							: 'over'} by about {formatAbs(spendingAvg.perMonth)} a month.
 					</p>
 				{/if}
 			</section>
@@ -378,6 +412,10 @@
 		font-weight: 600;
 	}
 
+	.last-entry {
+		margin: 0;
+		color: var(--muted);
+	}
 	.panel-head {
 		display: flex;
 		align-items: baseline;

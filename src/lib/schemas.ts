@@ -140,10 +140,12 @@ export const login = z.object({
 	password: z.string().min(1, 'Enter your password')
 });
 
-// The monthly entry form posts one JSON payload, mirroring expenses_save_month().
+export const day = z.iso.date('Pick a date');
+
+// The entry form posts one JSON payload, mirroring expenses_save_entry().
 const cents = z.number().int();
-export const monthPayload = z.object({
-	month: month,
+export const entryPayload = z.object({
+	date: day,
 	discretionary_spent_cents: cents.nullable(),
 	notes: z.string().max(5000),
 	balances: z.array(z.object({ account_id: id, balance_cents: cents })),
@@ -173,7 +175,7 @@ export const monthPayload = z.object({
 		})
 	)
 });
-export type MonthPayload = z.input<typeof monthPayload>;
+export type EntryPayload = z.input<typeof entryPayload>;
 
 /** Parse FormData with a schema; returns data or the first error message. */
 export function parseForm<T extends z.ZodType>(
