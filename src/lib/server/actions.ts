@@ -1,23 +1,20 @@
 // Form action handlers shared by the quick-add sheet and the list pages.
 
 import { fail, type Action } from '@sveltejs/kit';
+import type { z } from 'zod';
 import * as s from '#lib/schemas.ts';
-import { addAccount, addCostItem, addIncomeSource, reorder, type DB } from './data';
+import { nextSortOrder, reorder, type DB } from './data.ts';
 
 type Result = { message: string };
 
-function done(message: string): Result {
-	return { message };
-}
-
-function dbFail(error: { message: string } | null) {
-	return error ? fail(500, { message: error.message }) : null;
+function dbResult(error: { message: string } | null, message: string) {
+	return error ? fail(500, { message: error.message }) : ({ message } satisfies Result);
 }
 
 /** Wrap a handler so it receives validated data and the Supabase client. */
-function action<T extends import('zod').ZodType>(
+function action<T extends z.ZodType>(
 	schema: T,
-	run: (db: DB, data: import('zod').output<T>) => Promise<ReturnType<typeof fail> | Result>
+	run: (db: DB, data: z.output<T>) => Promise<ReturnType<typeof fail> | Result>
 ): Action {
 	return async ({ request, locals }) => {
 		const parsed = s.parseForm(schema, await request.formData());
@@ -28,148 +25,45 @@ function action<T extends import('zod').ZodType>(
 
 // --- quick add --------------------------------------------------------------
 
-export const addExpense = action(s.newCost, async (db, d) => {
-	await addCostItem(db, {
+export const addBill = action(s.newBill, async (db, d) => {
+	const sort_order = await nextSortOrder(db, 'expenses_bills');
+	const { error } = await db.from('expenses_bills').insert({
 		name: d.name,
-		frequency: d.frequency,
 		amount_cents: d.amount,
-		start_month: d.start_month,
-		due_month: d.due_month ?? Number(d.start_month.slice(5, 7)),
-		is_tax: d.is_tax,
-		is_variable: d.is_variable
-	});
-	return done('Expense added');
-});
-
-export const addIncome = action(s.newIncome, async (db, d) => {
-	await addIncomeSource(db, {
-		name: d.name,
-		category: d.category,
 		frequency: d.frequency,
-		rate_cents: d.rate,
-		quantity: d.quantity,
-		summer_quantity: d.summer_quantity,
-		start_month: d.start_month
+		is_tax: d.is_tax,
+		sort_order
 	});
-	return done('Income added');
+	return dbResult(error, 'Bill added');
 });
 
-export const addAccountAction = action(s.newAccount, async (db, d) => {
-	await addAccount(db, d);
-	return done('Account added');
+export const addAccount = action(s.newAccount, async (db, d) => {
+	const sort_order = await nextSortOrder(db, 'expenses_accounts');
+	const { error } = await db.from('expenses_accounts').insert({ ...d, sort_order });
+	return dbResult(error, 'Account added');
 });
 
-// --- costs --------------------------------------------------------------------
+// --- bills --------------------------------------------------------------------
 
-export const costActions = {
-	update: action(s.updateCost, async (db, d) => {
+export const billActions = {
+	update: action(s.updateBill, async (db, d) => {
 		const { error } = await db
-			.from('expenses_cost_items')
-			.update({
-				name: d.name,
-				frequency: d.frequency,
-				due_month: d.frequency === 'annual' ? (d.due_month ?? null) : null,
-				is_tax: d.is_tax,
-				is_variable: d.is_variable
-			})
+			.from('expenses_bills')
+			.update({ name: d.name, amount_cents: d.amount, frequency: d.frequency, is_tax: d.is_tax })
 			.eq('id', d.id);
-		return dbFail(error) ?? done('Saved');
+		return dbResult(error, 'Bill saved');
 	}),
-	amount: action(s.newAmount, async (db, d) => {
-		const { error } = await db
-			.from('expenses_cost_item_amounts')
-			.upsert(
-				{ cost_item_id: d.id, effective_from: d.effective_from, amount_cents: d.amount },
-				{ onConflict: 'cost_item_id,effective_from' }
-			);
-		return dbFail(error) ?? done('Amount updated');
+	archive: action(s.byId, async (db, d) => {
+		const { error } = await db.from('expenses_bills').update({ archived: true }).eq('id', d.id);
+		return dbResult(error, 'Bill stopped');
 	}),
-	removeAmount: action(s.removeRow, async (db, d) => {
-		const { count } = await db
-			.from('expenses_cost_item_amounts')
-			.select('id', { count: 'exact', head: true })
-			.eq('cost_item_id', d.id);
-		if ((count ?? 0) <= 1) return fail(400, { message: 'An expense needs at least one amount' });
-		const { error } = await db
-			.from('expenses_cost_item_amounts')
-			.delete()
-			.eq('id', d.row_id)
-			.eq('cost_item_id', d.id);
-		return dbFail(error) ?? done('Change removed');
-	}),
-	stop: action(s.stop, async (db, d) => {
-		const { error } = await db
-			.from('expenses_cost_items')
-			.update({ end_month: d.end_month })
-			.eq('id', d.id);
-		return dbFail(error) ?? done('Expense stopped');
-	}),
-	restart: action(s.byId, async (db, d) => {
-		const { error } = await db
-			.from('expenses_cost_items')
-			.update({ end_month: null })
-			.eq('id', d.id);
-		return dbFail(error) ?? done('Expense restarted');
+	restore: action(s.byId, async (db, d) => {
+		const { error } = await db.from('expenses_bills').update({ archived: false }).eq('id', d.id);
+		return dbResult(error, 'Bill restarted');
 	}),
 	reorder: action(s.reorder, async (db, d) => {
-		await reorder(db, 'expenses_cost_items', d.ids);
-		return done('Order saved');
-	})
-};
-
-// --- income -------------------------------------------------------------------
-
-export const incomeActions = {
-	update: action(s.updateIncome, async (db, d) => {
-		const { error } = await db
-			.from('expenses_income_sources')
-			.update({ name: d.name, category: d.category, frequency: d.frequency })
-			.eq('id', d.id);
-		return dbFail(error) ?? done('Saved');
-	}),
-	rate: action(s.newRate, async (db, d) => {
-		const { error } = await db.from('expenses_income_source_rates').upsert(
-			{
-				income_source_id: d.id,
-				effective_from: d.effective_from,
-				rate_cents: d.rate,
-				quantity: d.quantity,
-				summer_quantity: d.summer_quantity
-			},
-			{ onConflict: 'income_source_id,effective_from' }
-		);
-		return dbFail(error) ?? done('Rate updated');
-	}),
-	removeRate: action(s.removeRow, async (db, d) => {
-		const { count } = await db
-			.from('expenses_income_source_rates')
-			.select('id', { count: 'exact', head: true })
-			.eq('income_source_id', d.id);
-		if ((count ?? 0) <= 1) return fail(400, { message: 'Income needs at least one rate' });
-		const { error } = await db
-			.from('expenses_income_source_rates')
-			.delete()
-			.eq('id', d.row_id)
-			.eq('income_source_id', d.id);
-		return dbFail(error) ?? done('Change removed');
-	}),
-	stop: action(s.stop, async (db, d) => {
-		const { error } = await db
-			.from('expenses_income_sources')
-			.update({ end_month: d.end_month })
-			.eq('id', d.id);
-		return dbFail(error) ?? done('Income stopped');
-	}),
-	restart: action(s.byId, async (db, d) => {
-		const { error } = await db
-			.from('expenses_income_sources')
-			.update({ end_month: null })
-			.eq('id', d.id);
-		return dbFail(error) ?? done('Income restarted');
-	}),
-	reorder: action(s.reorder, async (db, d) => {
-		await reorder(db, 'expenses_income_sources', d.ids);
-		return done('Order saved');
+		await reorder(db, 'expenses_bills', d.ids);
+		return { message: 'Order saved' };
 	})
 };
 
@@ -181,18 +75,18 @@ export const accountActions = {
 			.from('expenses_accounts')
 			.update({ name: d.name, type: d.type, counts_toward_spending: d.counts_toward_spending })
 			.eq('id', d.id);
-		return dbFail(error) ?? done('Saved');
+		return dbResult(error, 'Account saved');
 	}),
 	archive: action(s.byId, async (db, d) => {
 		const { error } = await db.from('expenses_accounts').update({ archived: true }).eq('id', d.id);
-		return dbFail(error) ?? done('Account archived');
+		return dbResult(error, 'Account archived');
 	}),
 	restore: action(s.byId, async (db, d) => {
 		const { error } = await db.from('expenses_accounts').update({ archived: false }).eq('id', d.id);
-		return dbFail(error) ?? done('Account restored');
+		return dbResult(error, 'Account restored');
 	}),
 	reorder: action(s.reorder, async (db, d) => {
 		await reorder(db, 'expenses_accounts', d.ids);
-		return done('Order saved');
+		return { message: 'Order saved' };
 	})
 };

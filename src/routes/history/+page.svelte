@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { entryCosts, entryIncome, entryPeriod, reconcile } from '#lib/budget.ts';
+	import { periods, sortedCheckins } from '#lib/budget.ts';
 	import { dayMediumLabel, periodLabel } from '#lib/format.ts';
 	import { formatMoney, formatSigned } from '#lib/money.ts';
 	import type { PageProps } from './$types';
@@ -8,21 +8,11 @@
 	let { data }: PageProps = $props();
 	const app = $derived(data.app!);
 
+	const byEnd = $derived(new Map(periods(app).map((p) => [p.end, p])));
 	const rows = $derived(
-		[...app.entries].reverse().map((entry) => {
-			const rec = reconcile(app, entry.date);
-			const period = entryPeriod(app.entries, entry.date);
-			return {
-				date: entry.date,
-				period,
-				income: entryIncome(entry),
-				costs: entryCosts(entry),
-				spent: entry.discretionary_spent_cents ?? rec?.implied ?? null,
-				implied: entry.discretionary_spent_cents === null && rec?.implied != null,
-				change: rec?.actualChange ?? null,
-				unaccounted: rec?.unaccounted ?? null
-			};
-		})
+		sortedCheckins(app.checkins)
+			.reverse()
+			.map((c) => ({ checkin: c, period: byEnd.get(c.date) ?? null }))
 	);
 </script>
 
@@ -31,59 +21,53 @@
 <div class="page wide">
 	<div class="page-head">
 		<h1>History</h1>
-		<a class="button" href="/entry">New entry</a>
+		<a class="button" href="/checkin">Check in</a>
 	</div>
 
 	{#if rows.length === 0}
 		<div class="empty">
-			<p><strong>Every entry you make shows up here.</strong></p>
+			<p><strong>Every check-in shows up here.</strong></p>
 			<p>
-				Each one covers the days since the one before: what came in, what went out, and how your
-				balances moved. Example: Oct 13 – 27 — $5,850 in, $1,565 out.
+				Each row covers the time since the check-in before: how much your balances grew, your
+				main-job pay, bills, and everything else. Example: Sep 27 – Oct 27 — grew $1,200.
 			</p>
-			<a class="button primary" href="/entry">Make your first entry</a>
+			<a class="button primary" href="/checkin">Check in now</a>
 		</div>
 	{:else}
 		<div class="scroll">
 			<table>
 				<thead>
 					<tr>
-						<th scope="col">Entry</th>
-						<th scope="col">Income</th>
-						<th scope="col">Costs</th>
-						<th scope="col">Spending</th>
-						<th scope="col">Balances</th>
-						<th scope="col">Unaccounted</th>
+						<th scope="col">Check-in</th>
+						<th scope="col">Grew</th>
+						<th scope="col">Main job</th>
+						<th scope="col">Bills</th>
+						<th scope="col">Everything else</th>
 					</tr>
 				</thead>
 				<tbody>
-					{#each rows as r (r.date)}
-						<tr onclick={() => goto(`/entry/${r.date}`)}>
+					{#each rows as { checkin, period } (checkin.date)}
+						<tr onclick={() => goto(`/checkin/${checkin.date}`)}>
 							<th scope="row">
-								<a href="/entry/{r.date}">{dayMediumLabel(r.date)}</a>
-								<span class="period"
-									>{periodLabel(r.period.start, r.period.end)} · {r.period.days}
-									{r.period.days === 1 ? 'day' : 'days'}</span
+								<a href="/checkin/{checkin.date}">{dayMediumLabel(checkin.date)}</a>
+								<span class="sub"
+									>{period
+										? `${periodLabel(period.start, period.end)} · ${period.days} days`
+										: 'First check-in'}</span
 								>
 							</th>
-							<td class="num">{formatMoney(r.income)}</td>
-							<td class="num">{formatMoney(r.costs)}</td>
-							<td class="num">
-								{r.spent === null ? '—' : formatMoney(r.spent)}{#if r.implied}<span
-										class="muted"
-										title="Worked out from balances"
-									>
-										*</span
-									>{/if}
-							</td>
-							<td class="num">{r.change === null ? '—' : formatSigned(r.change)}</td>
-							<td class="num">{r.unaccounted === null ? '—' : formatSigned(r.unaccounted)}</td>
+							<td class="num">{period ? formatSigned(period.growth) : '—'}</td>
+							<td class="num">{formatMoney(checkin.main_income_cents)}</td>
+							<td class="num">{period ? `−${formatMoney(period.bills)}` : '—'}</td>
+							<td class="num">{period ? formatSigned(period.other) : '—'}</td>
 						</tr>
 					{/each}
 				</tbody>
 			</table>
 		</div>
-		<p class="small muted">* Worked out from balance changes because spending was left blank.</p>
+		<p class="small muted">
+			Everything else = grew − main job + bills: side income minus day-to-day spending.
+		</p>
 	{/if}
 </div>
 
@@ -101,7 +85,7 @@
 	table {
 		width: 100%;
 		border-collapse: collapse;
-		min-width: 40rem;
+		min-width: 36rem;
 	}
 	th,
 	td {
@@ -123,7 +107,7 @@
 	tbody th {
 		font-weight: 500;
 	}
-	.period {
+	.sub {
 		display: block;
 		font-size: var(--step--2);
 		font-weight: 400;

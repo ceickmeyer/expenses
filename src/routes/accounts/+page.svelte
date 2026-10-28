@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { accountBalances, totalSpendable } from '#lib/budget.ts';
+	import { accountBalances, countsTowardGrowth } from '#lib/budget.ts';
 	import { inPlace, postAction } from '#lib/forms.ts';
 	import { accountTypeLabel, dayMediumLabel } from '#lib/format.ts';
 	import { formatMoney, formatSigned } from '#lib/money.ts';
@@ -14,10 +14,12 @@
 
 	const active = $derived(app.accounts.filter((a) => !a.archived));
 	const archived = $derived(app.accounts.filter((a) => a.archived));
-	const balances = $derived(
-		new Map(accountBalances(app.accounts, app.snapshots).map((b) => [b.account.id, b]))
+	const balances = $derived(new Map(accountBalances(app).map((b) => [b.account.id, b])));
+	const growthTotal = $derived(
+		[...balances.values()]
+			.filter((b) => countsTowardGrowth(b.account))
+			.reduce((sum, b) => sum + (b.balance ?? 0), 0)
 	);
-	const spendable = $derived(totalSpendable([...balances.values()]));
 
 	let openId = $state<number | null>(null);
 </script>
@@ -36,16 +38,17 @@
 		<div class="empty">
 			<p><strong>Add each account whose balance you want to track.</strong></p>
 			<p>
-				Checking counts toward spending money; a tax reserve and investments don’t. Enter credit
-				cards too — their balances are entered as negative. Example: Checking, counts toward
-				spending.
+				Checking, savings and credit cards count toward growth; investments and a tax reserve
+				usually don’t. Credit card balances are entered as negative. Example: Checking.
 			</p>
 			<button type="button" class="primary" onclick={() => openQuickAdd('account')}
 				>Add your first account</button
 			>
 		</div>
 	{:else}
-		<p class="list-total">Spendable now: <strong class="num">{formatMoney(spendable)}</strong></p>
+		<p class="list-total">
+			Counted toward growth: <strong class="num">{formatMoney(growthTotal)}</strong>
+		</p>
 
 		<SortableList
 			items={active}
@@ -57,9 +60,7 @@
 				{@render accountRow(item, handle)}
 			{/snippet}
 		</SortableList>
-		<p class="small muted" style="margin-top: 0.75rem">
-			Balances are updated whenever you make an entry.
-		</p>
+		<p class="small muted" style="margin-top: 0.75rem">Balances are updated when you check in.</p>
 
 		{#if archived.length}
 			<details class="ended">
@@ -91,7 +92,7 @@
 			<div class="item-name">{item.name}</div>
 			<div class="item-meta">
 				<span>{accountTypeLabel[item.type]}</span>
-				{#if item.counts_toward_spending}<span class="tag moss">Spending</span>{/if}
+				{#if !item.counts_toward_spending}<span class="tag">Not in growth</span>{/if}
 				<button
 					type="button"
 					class="quiet"
@@ -127,7 +128,7 @@
 							type="checkbox"
 							name="counts_toward_spending"
 							checked={item.counts_toward_spending}
-						/> Counts toward spending money</label
+						/> Counts toward growth</label
 					>
 					<div class="button-row">
 						<button class="primary">Save</button>

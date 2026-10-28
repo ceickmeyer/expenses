@@ -2,47 +2,29 @@
 	import { enhance } from '$app/forms';
 	import { inPlace } from '#lib/forms.ts';
 	import { quickAdd, type QuickAddTab } from '#lib/quickadd.svelte.ts';
-	import {
-		accountTypeLabel,
-		categoryLabel,
-		costFrequencyOption,
-		monthInput,
-		monthNames,
-		thisMonth
-	} from '#lib/format.ts';
+	import { accountTypeLabel, billFrequencyOption, countsByDefault } from '#lib/format.ts';
 	import MoneyInput from './MoneyInput.svelte';
 
 	let dialog: HTMLDialogElement | undefined = $state();
 	let firstField: HTMLInputElement | undefined = $state();
 
 	const tabs: { id: QuickAddTab; label: string }[] = [
-		{ id: 'expense', label: 'Expense' },
-		{ id: 'income', label: 'Income' },
+		{ id: 'bill', label: 'Bill' },
 		{ id: 'account', label: 'Account' }
 	];
 
-	// Field state survives tab switches but resets after a successful save.
-	let costFrequency = $state<keyof typeof costFrequencyOption>('monthly');
-	let costStart = $state(monthInput(thisMonth()));
-	let accountType = $state<keyof typeof accountTypeLabel>('checking');
-	let countsTowardSpending = $state(true);
 	let amount = $state('');
-	let rate = $state('');
+	let accountType = $state<keyof typeof accountTypeLabel>('checking');
+	let counts = $state(true);
 
 	$effect(() => {
 		if (!dialog) return;
 		if (quickAdd.open && !dialog.open) {
-			costStart = monthInput(thisMonth());
 			dialog.showModal();
 			queueMicrotask(() => firstField?.focus());
 		} else if (!quickAdd.open && dialog.open) {
 			dialog.close();
 		}
-	});
-
-	$effect(() => {
-		// Default "counts toward spending" to what the account type usually means.
-		countsTowardSpending = accountType === 'checking' || accountType === 'credit_card';
 	});
 
 	function close() {
@@ -55,9 +37,8 @@
 	function saved() {
 		resetKey++;
 		amount = '';
-		rate = '';
-		costFrequency = 'monthly';
 		accountType = 'checking';
+		counts = true;
 		close();
 	}
 </script>
@@ -81,94 +62,24 @@
 	</div>
 
 	{#key resetKey}
-		{#if quickAdd.tab === 'expense'}
-			<form method="post" action="/quick?/expense" use:enhance={inPlace(saved)}>
-				<label>Name <input name="name" required placeholder="Phone" bind:this={firstField} /></label
-				>
+		{#if quickAdd.tab === 'bill'}
+			<form method="post" action="/quick?/bill" use:enhance={inPlace(saved)}>
+				<label>Name <input name="name" required placeholder="Rent" bind:this={firstField} /></label>
 				<div class="row">
 					<label>Amount <MoneyInput name="amount" required bind:value={amount} /></label>
 					<label
 						>How often
-						<select name="frequency" bind:value={costFrequency}>
-							{#each Object.entries(costFrequencyOption) as [value, label] (value)}
+						<select name="frequency">
+							{#each Object.entries(billFrequencyOption) as [value, label] (value)}
 								<option {value}>{label}</option>
 							{/each}
 						</select>
 					</label>
-				</div>
-				<div class="row">
-					<label
-						>{costFrequency === 'one_time' ? 'Month paid' : 'Starting month'}
-						<input type="month" name="start_month" required bind:value={costStart} /></label
-					>
-					{#if costFrequency === 'annual'}
-						<label
-							>Paid in
-							<select name="due_month" value={Number(costStart.slice(5, 7))}>
-								{#each monthNames as label, i (i)}
-									<option value={i + 1}>{label}</option>
-								{/each}
-							</select>
-						</label>
-					{/if}
 				</div>
 				<label class="check"
-					><input type="checkbox" name="is_variable" /> Changes month to month</label
+					><input type="checkbox" name="is_tax" /> This is an estimated tax payment</label
 				>
-				<label class="check"><input type="checkbox" name="is_tax" /> This is a tax payment</label>
-				<button class="primary">Add expense</button>
-			</form>
-		{:else if quickAdd.tab === 'income'}
-			<form method="post" action="/quick?/income" use:enhance={inPlace(saved)}>
-				<label
-					>Name <input
-						name="name"
-						required
-						placeholder="Weekly students"
-						bind:this={firstField}
-					/></label
-				>
-				<div class="row">
-					<label
-						>Category
-						<select name="category">
-							{#each Object.entries(categoryLabel) as [value, label] (value)}
-								<option {value}>{label}</option>
-							{/each}
-						</select>
-					</label>
-					<label
-						>How often
-						<select name="frequency">
-							<option value="weekly">Weekly</option>
-							<option value="biweekly">Every 2 weeks</option>
-							<option value="monthly">Monthly</option>
-						</select>
-					</label>
-				</div>
-				<div class="row">
-					<label>Rate <MoneyInput name="rate" required bind:value={rate} placeholder="90" /></label>
-					<label>Clients <input type="number" name="quantity" min="0" value="1" required /></label>
-				</div>
-				<div class="row">
-					<label
-						>Continue in summer
-						<input type="number" name="summer_quantity" min="0" value="0" required /></label
-					>
-					<label
-						>Starting month
-						<input
-							type="month"
-							name="start_month"
-							required
-							value={monthInput(thisMonth())}
-						/></label
-					>
-				</div>
-				<p class="hint">
-					Rate is per session (or per payment). Summer tutoring is set in Settings.
-				</p>
-				<button class="primary">Add income</button>
+				<button class="primary">Add bill</button>
 			</form>
 		{:else}
 			<form method="post" action="/quick?/account" use:enhance={inPlace(saved)}>
@@ -177,19 +88,24 @@
 				>
 				<label
 					>Type
-					<select name="type" bind:value={accountType}>
+					<select
+						name="type"
+						bind:value={accountType}
+						onchange={() => (counts = countsByDefault(accountType))}
+					>
 						{#each Object.entries(accountTypeLabel) as [value, label] (value)}
 							<option {value}>{label}</option>
 						{/each}
 					</select>
 				</label>
 				<label class="check"
-					><input
-						type="checkbox"
-						name="counts_toward_spending"
-						bind:checked={countsTowardSpending}
-					/> Counts toward spending money</label
+					><input type="checkbox" name="counts_toward_spending" bind:checked={counts} /> Counts toward
+					growth</label
 				>
+				<p class="hint">
+					Leave this off for accounts that move on their own, like investments, or that only hold
+					money set aside, like a tax reserve.
+				</p>
 				<button class="primary">Add account</button>
 			</form>
 		{/if}
@@ -228,7 +144,7 @@
 	}
 	.tabs {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(2, 1fr);
 		gap: 0.25rem;
 		margin: 0.75rem 0 1rem;
 		padding: 0.25rem;

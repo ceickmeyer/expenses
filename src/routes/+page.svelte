@@ -1,85 +1,44 @@
 <script lang="ts">
 	import {
 		accountBalances,
-		addMonths,
-		averageSpendingDifference,
-		dayIn,
+		balanceSeries,
+		countsTowardGrowth,
 		daysBetween,
-		monthFigures,
-		projection,
-		reservePlan,
-		savingsTotal,
-		setAside,
-		spendingFor,
-		taxStatus,
-		totalSpendable
+		summary,
+		taxStatus
 	} from '#lib/budget.ts';
-	import CashFlowChart from '#lib/components/CashFlowChart.svelte';
-	import {
-		dateLabel,
-		dayShortLabel,
-		monthLabel,
-		monthShortLabel,
-		periodLabel,
-		thisMonth,
-		today as todayDay
-	} from '#lib/format.ts';
+	import GrowthChart from '#lib/components/GrowthChart.svelte';
+	import { dateLabel, dayShortLabel, periodLabel, today } from '#lib/format.ts';
 	import { formatAbs, formatMoney, formatSigned } from '#lib/money.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 	const app = $derived(data.app!);
-	const today = new Date();
-	const now = thisMonth();
+	const now = new Date();
 
 	const checklist = $derived([
 		{ label: 'Add your accounts', href: '/accounts', done: app.accounts.length > 0 },
-		{ label: 'Add your income sources', href: '/sources', done: app.sources.length > 0 },
-		{ label: 'Add your regular costs', href: '/costs', done: app.costs.length > 0 },
-		{
-			label: 'Set your schedule (cancellations, summer hours, reduced weeks)',
-			href: '/settings',
-			done: app.settings.configured,
-			optional: true
-		},
-		{ label: 'Make your first entry', href: '/entry', done: app.entries.length > 0 }
+		{ label: 'Add your bills', href: '/bills', done: app.bills.length > 0 },
+		{ label: 'Check in with today’s balances', href: '/checkin', done: app.checkins.length > 0 }
 	]);
-	const setupDone = $derived(checklist.slice(0, 3).every((c) => c.done));
-	const latestEntry = $derived(app.entries.at(-1)?.date ?? null);
+	const setupDone = $derived(checklist.every((c) => c.done));
 
-	const p = $derived(projection(app, today));
+	const s = $derived(summary(app));
+	const latest = $derived(app.checkins.at(-1) ?? null);
+	const daysSince = $derived(latest ? daysBetween(latest.date, today()) : null);
+	const chart = $derived(balanceSeries(app));
 
-	// This month: actuals up to the latest entry, expected for the rest.
-	const focus = now;
-	const focusFigures = $derived(monthFigures(app, focus));
-	const focusSetAside = $derived(setAside(focusFigures, p.perMonth, app.settings));
-
-	const spending = $derived(latestEntry ? spendingFor(app, latestEntry, p.perDay) : null);
-	const spendingAvg = $derived(
-		latestEntry ? averageSpendingDifference(app, latestEntry, p.perDay) : null
+	const balances = $derived(accountBalances(app));
+	const growthTotal = $derived(
+		balances
+			.filter((b) => countsTowardGrowth(b.account))
+			.reduce((sum, b) => sum + (b.balance ?? 0), 0)
 	);
-	const daysSinceEntry = $derived(latestEntry ? daysBetween(latestEntry, todayDay()) : null);
-
-	const chartMonths = $derived(
-		p.months.map((f) => ({
-			month: f.month,
-			income: f.income,
-			costs: f.setAsideCosts,
-			actual: f.actual
-		}))
+	const tax = $derived(taxStatus(app, now));
+	const hasTax = $derived(
+		app.bills.some((b) => b.is_tax && b.frequency === 'quarterly' && !b.archived)
 	);
-
-	const balances = $derived(accountBalances(app.accounts, app.snapshots));
-	const spendable = $derived(totalSpendable(balances));
-	const tax = $derived(taxStatus(app, today));
-	const hasTax = $derived(app.costs.some((c) => c.is_tax && c.frequency === 'quarterly'));
 	const hasTaxAccount = $derived(app.accounts.some((a) => a.type === 'tax_reserve' && !a.archived));
-
-	const reserve = $derived(reservePlan(app, now, p.perMonth));
-	const savings = $derived(savingsTotal(balances));
-	const reservePct = $derived(
-		reserve.target > 0 ? Math.min(100, Math.max(0, (savings / reserve.target) * 100)) : 100
-	);
 </script>
 
 <svelte:head><title>Money</title></svelte:head>
@@ -90,8 +49,7 @@
 			<p class="eyebrow">Getting started</p>
 			<h1>Set up your money picture</h1>
 			<p class="muted">
-				Add your own accounts, income and costs. Once the first three are in, this page shows how
-				much you can spend each day.
+				Three steps. After that, check in about once a month with your balances and main-job pay.
 			</p>
 			<ol class="checklist">
 				{#each checklist as item, i (item.href)}
@@ -99,150 +57,107 @@
 						<span class="mark" aria-hidden="true">{item.done ? '✓' : i + 1}</span>
 						<a href={item.href}>{item.label}</a>
 						{#if item.done}<span class="visually-hidden">(done)</span>{/if}
-						{#if item.optional}<span class="tag">Optional</span>{/if}
 					</li>
 				{/each}
 			</ol>
 		</section>
-	{:else if app.entries.length === 0}
+	{:else if !s}
 		<section class="panel first">
-			<h1>Make your first entry to see your spending window</h1>
+			<h1>Check in again in a few weeks</h1>
 			<p class="muted">
-				It takes a couple of minutes: today’s balances, plus what came in and went out since the
-				1st. After that, make an entry whenever you like — each one covers the days since the last.
+				Your first check-in on {dayShortLabel(latest!.date)} set the starting point. From the next one,
+				you’ll see how your balances grew and how much room you have to spend.
 			</p>
-			<a class="button primary" href="/entry">New entry for today</a>
+			<a class="button primary" href="/checkin">Check in</a>
 		</section>
 	{:else}
 		<section class="headline" aria-labelledby="headline">
-			{#if p.perDay >= 0}
-				<h1 id="headline">
-					<span class="lead">You can spend</span>
-					<span class="big num">{formatMoney(p.perDay)}</span>
-					<span class="lead">a day</span>
-				</h1>
-			{:else}
-				<h1 id="headline">
-					<span class="lead">You’re over by</span>
-					<span class="big num neg">{formatAbs(p.perDay)}</span>
-					<span class="lead">a day</span>
-				</h1>
-			{/if}
+			<h1 id="headline">
+				{#if s.perDay >= 0}
+					<span class="big num">{formatMoney(s.perDay)}</span>
+					<span class="lead">a day of extra room</span>
+				{:else}
+					<span class="big num neg">{formatAbs(s.perDay)}</span>
+					<span class="lead">a day to cut back</span>
+				{/if}
+			</h1>
+			<p class="muted">
+				{#if s.perDay >= 0}
+					You could spend this much more each day than you do now and still
+					{s.savingsGoal > 0 ? `save ${formatMoney(s.savingsGoal)} a month` : 'break even'}.
+				{:else if s.savingsGoal > 0}
+					To save {formatMoney(s.savingsGoal)} a month, spend this much less each day.
+				{:else}
+					Your balances are shrinking. Spend this much less each day to break even.
+				{/if}
+			</p>
 			<dl class="rates">
 				<div>
 					<dt>Per week</dt>
-					<dd class="num">{formatMoney(p.perWeek)}</dd>
+					<dd class="num">{formatSigned(s.perWeek)}</dd>
 				</div>
 				<div>
 					<dt>Per month</dt>
-					<dd class="num">{formatMoney(p.perMonth)}</dd>
+					<dd class="num">{formatSigned(s.spare)}</dd>
 				</div>
 			</dl>
-			<p class="small muted">
-				Averaged over {monthShortLabel(p.months[0].month)} – {monthShortLabel(p.months[11].month)}
-				after costs{app.settings.monthly_savings_goal_cents > 0
-					? ` and saving ${formatMoney(app.settings.monthly_savings_goal_cents)} a month`
-					: ''}, so summer and winter feel the same.
-			</p>
-			{#if latestEntry && daysSinceEntry !== null}
-				<p class="last-entry small">
-					Last entry {daysSinceEntry === 0
+			{#if latest && daysSince !== null}
+				<p class="last small">
+					Last check-in {daysSince === 0
 						? 'today'
-						: daysSinceEntry === 1
+						: daysSince === 1
 							? 'yesterday'
-							: `${dayShortLabel(latestEntry)}, ${daysSinceEntry} days ago`}
-					· <a href="/entry">New entry</a>
+							: `${dayShortLabel(latest.date)}, ${daysSince} days ago`}
+					· <a href="/checkin">Check in</a>
 				</p>
 			{/if}
 		</section>
 
 		<section class="panel">
-			<div class="panel-head">
-				<h2>{monthLabel(focus)}</h2>
-				{#if !focusFigures.actual}
-					<span class="tag">Expected</span>
-				{:else}
-					<span class="tag"
-						>Entered through {dayShortLabel(dayIn(focus, focusFigures.coveredDays))}</span
-					>
-				{/if}
-			</div>
-			<table class="compare">
-				<thead>
-					<tr><th></th><th scope="col">Expected</th><th scope="col">So far</th></tr>
-				</thead>
-				<tbody>
-					<tr>
-						<th scope="row">Income</th>
-						<td class="num">{formatMoney(focusFigures.expectedIncome)}</td>
-						<td class="num"
-							>{focusFigures.actualIncome !== null
-								? formatMoney(focusFigures.actualIncome)
-								: '—'}</td
-						>
-					</tr>
-					<tr>
-						<th scope="row">Costs</th>
-						<td class="num">{formatMoney(focusFigures.expectedCosts)}</td>
-						<td class="num"
-							>{focusFigures.actualCosts !== null ? formatMoney(focusFigures.actualCosts) : '—'}</td
-						>
-					</tr>
-				</tbody>
-			</table>
-			<p class="instruction" class:draw={focusSetAside < 0}>
-				{#if focusSetAside >= 0}
-					<span class="icon" aria-hidden="true">↓</span>
-					<span
-						><strong>Set aside {formatAbs(focusSetAside)}</strong> into savings for leaner months.</span
-					>
-				{:else}
-					<span class="icon" aria-hidden="true">↑</span>
-					<span
-						><strong>Draw {formatAbs(focusSetAside)}</strong> from your reserve to cover this month.</span
-					>
-				{/if}
+			<h2>Where it comes from</h2>
+			<p class="small muted">
+				Monthly average over {periodLabel(s.periods[0].start, s.periods.at(-1)!.end)} ({s.days}
+				days).
 			</p>
-			<p class="small muted" style="margin: 0">
-				Based on {focusFigures.actual
-					? 'what you’ve entered so far plus what’s expected for the rest of the month'
-					: 'what’s expected this month'}.
-			</p>
+			<dl class="breakdown">
+				<div>
+					<dt>Main job</dt>
+					<dd class="num">+{formatMoney(s.perMonth.mainIncome)}</dd>
+				</div>
+				<div>
+					<dt>Everything else <span class="hint">side income minus spending</span></dt>
+					<dd class="num">{formatSigned(s.perMonth.other)}</dd>
+				</div>
+				<div>
+					<dt>Bills</dt>
+					<dd class="num">−{formatMoney(s.perMonth.bills)}</dd>
+				</div>
+				<div class="sum">
+					<dt>Balances grew</dt>
+					<dd class="num">{formatSigned(s.perMonth.growth)}</dd>
+				</div>
+				<div>
+					<dt>Savings goal</dt>
+					<dd class="num">−{formatMoney(s.savingsGoal)}</dd>
+				</div>
+				<div class="sum">
+					<dt>Extra room</dt>
+					<dd class="num" class:pos={s.spare >= 0} class:neg={s.spare < 0}>
+						{formatSigned(s.spare)}
+					</dd>
+				</div>
+			</dl>
 		</section>
+	{/if}
 
-		{#if spending}
-			<section class="panel">
-				<h2>
-					Spending {periodLabel(spending.period.start, spending.period.end)}
-				</h2>
-				<p class="spend">
-					<span class="num big-ish">{formatMoney(spending.spent)}</span>
-					<span class="muted">
-						{spending.source === 'implied' ? 'worked out from your balances' : 'entered'} · window
-						{formatMoney(spending.allowed)} for {spending.period.days}
-						{spending.period.days === 1 ? 'day' : 'days'}
-					</span>
-				</p>
-				<p class:pos={spending.difference >= 0} class:neg={spending.difference < 0}>
-					<strong
-						>{spending.difference >= 0 ? 'Under' : 'Over'} by {formatAbs(
-							spending.difference
-						)}</strong
-					>
-				</p>
-				{#if spendingAvg && spendingAvg.entries > 1}
-					<p class="small muted">
-						Across your last {spendingAvg.entries} entries you’ve been {spendingAvg.perMonth >= 0
-							? 'under'
-							: 'over'} by about {formatAbs(spendingAvg.perMonth)} a month.
-					</p>
-				{/if}
-			</section>
-		{/if}
-
+	{#if app.checkins.length > 0}
 		<section class="panel">
-			<h2>Next 12 months</h2>
-			<CashFlowChart months={chartMonths} />
+			<h2>Balances over time</h2>
+			{#if chart.dates.length < 2}
+				<p class="muted">The chart appears after your second check-in.</p>
+			{:else}
+				<GrowthChart dates={chart.dates} series={chart.series} />
+			{/if}
 		</section>
 
 		<section class="panel">
@@ -250,78 +165,48 @@
 				<h2>Balances</h2>
 				<a class="small" href="/accounts">Accounts</a>
 			</div>
-			{#if balances.length === 0}
-				<p class="muted">No accounts yet.</p>
-			{:else}
-				<ul class="balances">
-					{#each balances as b (b.account.id)}
-						<li>
-							<span>
-								{b.account.name}
-								{#if b.account.counts_toward_spending}<span class="tag moss">Spending</span>{/if}
-							</span>
-							<span class="num">{b.balance === null ? '—' : formatMoney(b.balance)}</span>
-							<span class="num small muted change"
-								>{b.change === null ? '' : formatSigned(b.change)}</span
-							>
-						</li>
-					{/each}
-				</ul>
-				<p class="total">Total spendable <strong class="num">{formatMoney(spendable)}</strong></p>
-			{/if}
+			<ul class="balances">
+				{#each balances as b (b.account.id)}
+					<li>
+						<span>
+							{b.account.name}
+							{#if !b.account.counts_toward_spending}<span class="tag">Not in growth</span>{/if}
+						</span>
+						<span class="num">{b.balance === null ? '—' : formatMoney(b.balance)}</span>
+						<span
+							class="num small change"
+							class:pos={(b.change ?? 0) > 0}
+							class:neg={(b.change ?? 0) < 0}
+							>{b.change === null ? '' : formatSigned(b.change)}</span
+						>
+					</li>
+				{/each}
+			</ul>
+			<p class="total">
+				Counted toward growth <strong class="num">{formatMoney(growthTotal)}</strong>
+			</p>
 		</section>
+	{/if}
 
-		{#if hasTax}
-			<section class="panel">
-				<h2>Tax reserve</h2>
-				<p>
-					Next payment <strong class="num">{formatMoney(tax.nextPayment)}</strong> due
-					{dateLabel(tax.nextDue)}.
-				</p>
-				{#if !hasTaxAccount}
-					<p class="muted small">
-						Add an account with type “Tax reserve” to check you’re on track.
-					</p>
-				{:else if tax.onTrack}
-					<p class="status ok">
-						<span aria-hidden="true">✓</span> <strong>On track</strong> · {formatMoney(
-							tax.balance ?? 0
-						)} saved, {formatMoney(tax.needed)} needed so far
-					</p>
-				{:else}
-					<p class="status short">
-						<span aria-hidden="true">!</span> <strong>Short by {formatAbs(tax.shortBy)}</strong> · {formatMoney(
-							tax.balance ?? 0
-						)} saved, {formatMoney(tax.needed)} needed so far
-					</p>
-				{/if}
-			</section>
-		{/if}
-
+	{#if hasTax && setupDone}
 		<section class="panel">
-			<h2>Seasonal reserve</h2>
-			{#if reserve.target <= 0}
-				<p class="muted">No lean months ahead — income covers costs and spending every month.</p>
-			{:else}
-				<p>
-					<strong class="num">{formatMoney(savings)}</strong> saved of
-					<strong class="num">{formatMoney(reserve.target)}</strong> needed to cover the leanest stretch
-					ahead.
+			<h2>Tax reserve</h2>
+			<p>
+				Next payment <strong class="num">{formatMoney(tax.nextPayment)}</strong> due
+				{dateLabel(tax.nextDue)}.
+			</p>
+			{#if !hasTaxAccount}
+				<p class="muted small">Add an account with type “Tax reserve” to check you’re on track.</p>
+			{:else if tax.onTrack}
+				<p class="status ok">
+					<span aria-hidden="true">✓</span> <strong>On track</strong> · {formatMoney(
+						tax.balance ?? 0
+					)} saved, {formatMoney(tax.needed)} needed so far
 				</p>
-				<div
-					class="bar"
-					role="progressbar"
-					aria-valuemin="0"
-					aria-valuemax="100"
-					aria-valuenow={Math.round(reservePct)}
-					aria-label="Seasonal reserve"
-				>
-					<span style="width: {reservePct}%"></span>
-				</div>
-				<p class="small muted">
-					{savings >= reserve.target
-						? 'Fully covered.'
-						: `${formatMoney(reserve.target - savings)} to go. Savings accounts count toward this.`}
+			{:else}
+				<p class="status short">
+					<span aria-hidden="true">!</span> <strong>Short by {formatAbs(tax.shortBy)}</strong> ·
+					{formatMoney(tax.balance ?? 0)} saved, {formatMoney(tax.needed)} needed so far
 				</p>
 			{/if}
 		</section>
@@ -344,7 +229,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		flex-wrap: wrap;
 	}
 	.checklist .mark {
 		display: grid;
@@ -377,8 +261,12 @@
 	.headline h1 {
 		display: flex;
 		flex-direction: column;
-		margin: 0;
-		font-weight: 600;
+		margin: 0 0 0.5rem;
+	}
+	.big {
+		font-size: var(--step-4);
+		line-height: 1;
+		letter-spacing: -0.02em;
 	}
 	.lead {
 		font-family: var(--font-body);
@@ -386,17 +274,12 @@
 		font-weight: 500;
 		color: var(--muted);
 		letter-spacing: 0;
-	}
-	.big {
-		font-size: var(--step-4);
-		line-height: 1;
-		margin: 0.15rem 0 0.25rem;
-		letter-spacing: -0.02em;
+		margin-top: 0.3rem;
 	}
 	.rates {
 		display: flex;
 		gap: 2rem;
-		margin: 1rem 0 0.75rem;
+		margin: 0.75rem 0;
 	}
 	.rates div {
 		display: grid;
@@ -411,10 +294,13 @@
 		font-size: var(--step-2);
 		font-weight: 600;
 	}
-
-	.last-entry {
+	.last {
 		margin: 0;
 		color: var(--muted);
+	}
+
+	.panel h2 {
+		font-size: var(--step-1);
 	}
 	.panel-head {
 		display: flex;
@@ -422,72 +308,42 @@
 		justify-content: space-between;
 		gap: 1rem;
 	}
-	.panel h2 {
-		font-size: var(--step-1);
-	}
 
-	.compare {
-		width: 100%;
-		border-collapse: collapse;
-		margin-bottom: 0.75rem;
-	}
-	.compare th,
-	.compare td {
-		padding: 0.35rem 0;
-		text-align: right;
-	}
-	.compare thead th {
-		font-size: var(--step--1);
-		color: var(--muted);
-		font-weight: 500;
-	}
-	.compare th[scope='row'] {
-		text-align: left;
-		font-weight: 500;
-	}
-	.compare tbody tr + tr {
-		border-top: 1px solid var(--line);
-	}
-
-	.instruction {
-		display: flex;
-		gap: 0.75rem;
-		align-items: center;
-		background: var(--moss-soft);
-		color: var(--ink);
-		border-radius: var(--radius-sm);
-		padding: 0.75rem 0.9rem;
-		margin: 0 0 0.5rem;
-	}
-	.instruction.draw {
-		background: var(--clay-soft);
-	}
-	.instruction .icon {
+	.breakdown {
+		margin: 0;
 		display: grid;
-		place-items: center;
-		flex: none;
-		width: 2rem;
-		height: 2rem;
-		border-radius: 50%;
-		background: var(--moss);
-		color: var(--surface);
-		font-weight: 700;
 	}
-	.instruction.draw .icon {
-		background: var(--clay);
-	}
-
-	.spend {
+	.breakdown div {
 		display: flex;
-		flex-wrap: wrap;
+		justify-content: space-between;
 		align-items: baseline;
-		gap: 0.25rem 0.75rem;
-		margin-bottom: 0.25rem;
+		gap: 1rem;
+		padding: 0.4rem 0;
+		border-bottom: 1px solid var(--line);
 	}
-	.big-ish {
-		font-family: var(--font-display);
-		font-size: var(--step-3);
+	.breakdown div:last-child {
+		border-bottom: none;
+	}
+	.breakdown dt {
+		color: var(--muted);
+	}
+	.breakdown dd {
+		margin: 0;
+	}
+	.breakdown .hint {
+		display: block;
+		font-size: var(--step--2);
+	}
+	.breakdown .sum dt,
+	.breakdown .sum dd {
+		color: var(--ink);
 		font-weight: 600;
+	}
+	.breakdown .sum dd.pos {
+		color: var(--moss);
+	}
+	.breakdown .sum dd.neg {
+		color: var(--clay);
 	}
 
 	.balances {
@@ -497,7 +353,7 @@
 	}
 	.balances li {
 		display: grid;
-		grid-template-columns: 1fr auto 4.75rem;
+		grid-template-columns: 1fr auto 5rem;
 		gap: 0.75rem;
 		align-items: baseline;
 		padding: 0.45rem 0;
@@ -525,19 +381,5 @@
 	.status.short strong,
 	.status.short span[aria-hidden] {
 		color: var(--clay);
-	}
-
-	.bar {
-		height: 0.75rem;
-		background: var(--sunken);
-		border-radius: 999px;
-		overflow: hidden;
-		margin: 0.5rem 0;
-	}
-	.bar span {
-		display: block;
-		height: 100%;
-		background: var(--moss);
-		border-radius: 999px;
 	}
 </style>

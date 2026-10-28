@@ -3,8 +3,8 @@
  *   paper  – warm off-white page        ink    – deep blue-green text
  *   moss   – money in / on track         clay   – money out / short
  *   brass  – tax and attention           slate  – secondary text and lines
- *   chart-income / chart-cost – a separate blue/orange pair, because moss and clay
- *   are too close for colorblind readers when they sit side by side in a chart.
+ *   series-1…8 – account lines in the growth chart, a separate categorical set because moss
+ *   and clay are too close for colorblind readers side by side. The total line uses ink.
  * Type: Fraunces for the few big numbers and headings, IBM Plex Sans for everything else.
  */
 
@@ -26,9 +26,15 @@
 	--moss-on-ink: #8fd3ad;
 	--clay-on-ink: #f0a07f;
 	--focus: #2563a8;
-	/* Chart series: blue/orange pair validated for colorblind separation */
-	--chart-income: #2b6cb0;
-	--chart-cost: #c25a1c;
+	/* Account series in the growth chart: fixed order, validated for colorblind separation */
+	--series-1: #2a78d6;
+	--series-2: #eb6834;
+	--series-3: #1baf7a;
+	--series-4: #eda100;
+	--series-5: #e87ba4;
+	--series-6: #008300;
+	--series-7: #6250d6;
+	--series-8: #e34948;
 
 	--font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 	--font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
@@ -68,8 +74,14 @@
 		--moss-on-ink: #2f6b4f;
 		--clay-on-ink: #b24d27;
 		--focus: #7fb2ef;
-		--chart-income: #4a8ad4;
-		--chart-cost: #d26a2a;
+		--series-1: #3987e5;
+		--series-2: #d95926;
+		--series-3: #199e70;
+		--series-4: #c98500;
+		--series-5: #d55181;
+		--series-6: #008300;
+		--series-7: #9085e9;
+		--series-8: #e66767;
 		--shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
 		--shadow: 0 12px 32px rgb(0 0 0 / 0.5);
 	}

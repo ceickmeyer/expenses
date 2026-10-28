@@ -1,24 +1,42 @@
 # Money
 
-A private, single-user dashboard for self-employed income. Whenever you like, you make a dated
-entry: today's account balances, plus what came in and went out since your previous entry. The app works out how much
-you can safely spend per day, week and month while covering quarterly taxes, bills and the
-summer income dip.
+A private, single-user money dashboard. About once a month you check in: each account's
+balance and the main-job pay you received since last time. Bills are a fixed list. The app
+works out everything else (side income minus day-to-day spending) from how your balances grew,
+and shows how much extra room you have to spend each day after your savings goal.
 
 SvelteKit 3 + Svelte 5, Supabase (Postgres + Auth), deployed on Vercel.
 
 ## How it fits together
 
-- `src/lib/budget.ts` — the budget engine: pure functions, no Supabase or Svelte. Tested in
+- `src/lib/budget.ts` — the engine: pure functions, no Supabase or Svelte. Tested in
   `src/lib/budget.test.ts`.
-- `src/lib/server/data.ts` — loads all of your data in one round of queries and maps it to
-  engine types. The root layout loads it once; pages compute from it.
+- `src/lib/server/data.ts` — loads all of your data in one round of queries. The root layout
+  loads it once; pages compute from it.
 - `src/lib/server/actions.ts` + `src/lib/schemas.ts` — form actions, each validated with Zod.
-- `supabase/migrations/` — tables, row level security, `expenses_save_entry()` (saves a whole
-  entry atomically) and `expenses_ensure_settings()`.
+- `supabase/migrations/` — tables, row level security, `expenses_save_checkin()` (saves a
+  check-in and its balances atomically) and `expenses_ensure_settings()`.
 
 All tables and functions are prefixed `expenses_` because the Supabase project is shared with
 other apps.
+
+## The math
+
+Between two check-ins:
+
+|                 |                                                               |
+| --------------- | ------------------------------------------------------------- |
+| Growth          | change in balances of accounts that count toward growth       |
+| Bills           | monthly bill total (quarterly ÷ 3, yearly ÷ 12) × days ÷ 30.4 |
+| Everything else | growth − main pay + bills                                     |
+
+The headline averages the last ~90 days of check-ins: **extra room per day** = (monthly growth
+− savings goal) ÷ 30.4. Positive means you could spend that much more each day; negative means
+cut back by that much.
+
+Accounts you skip at a check-in are treated as unchanged. An account's first balance isn't
+counted as growth. Investments and a tax reserve usually shouldn't count toward growth
+(market swings and money already set aside) — that's a per-account setting.
 
 ## Supabase setup
 
@@ -36,7 +54,7 @@ You need one Supabase project. It can be shared with other apps.
 2. **Create your user.** Authentication → Users → **Add user** → **Create new user**. Enter
    your email and a password and tick **Auto confirm user**.
 
-3. **Apply the migrations** (there are two, applied in order). Either:
+3. **Apply the migrations**, oldest first. Either:
 
    - **CLI** (installed as a dev dependency):
 
@@ -51,8 +69,7 @@ You need one Supabase project. It can be shared with other apps.
      `npx supabase db push --include-all`, or use the SQL editor instead.
 
    - **SQL editor:** paste each file in `supabase/migrations/` into Dashboard → SQL Editor and
-     run them oldest first. If you already ran the first one, run only
-     `20261027120000_expenses_dated_entries.sql`.
+     run them oldest first, skipping any you've already run.
 
 4. **Regenerate types** (optional; `src/lib/database.types.ts` is hand-written to match the
    migration):
@@ -90,19 +107,7 @@ npm run check      # type check
    Variables.
 3. Deploy, then log in with the user you created.
 
-## How entries work
-
-- An entry is dated. It records balances as of that day, and income, costs and spending
-  **since the previous entry**. Your first entry covers from the 1st of its month.
-- Income is spread evenly over the days an entry covers, so an entry spanning Sep 25 – Oct 10
-  splits between September and October. Costs land in the month they were due (bills on the
-  1st, quarterly tax on the 15th).
-- The current month uses your actual numbers through your latest entry and expected numbers
-  for the rest of the month.
-- Spending is compared with your daily amount times the days the entry covers.
-
 ## First run
 
-The app starts empty. The dashboard shows a checklist until you've added accounts, income
-sources and costs; after that it asks for your first entry. Every list page explains
-what belongs on it.
+The app starts empty. The dashboard walks you through adding accounts and bills and making a
+first check-in. Growth and the per-day number appear from your second check-in.
